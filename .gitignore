@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+.smoke-build/
+dist/
+build/
+*.log
+.DS_Store
+coverage/
+.vite/
