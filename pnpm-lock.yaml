@@ -38,6 +38,9 @@ importers:
       '@darkchess/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@darkchess/server':
+        specifier: workspace:*
+        version: link:../server
       react:
         specifier: ^18.3.1
         version: 18.3.1

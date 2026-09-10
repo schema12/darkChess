@@ -1,6 +1,6 @@
 import { cellAt } from '@darkchess/core';
 import { assetRegistry } from '../assets/registry';
-import type { GameController } from '../game/useGame';
+import type { GameController, ReadyGameController } from '../game/useGame';
 import { PieceView } from './PieceView';
 
 /**
@@ -9,7 +9,7 @@ import { PieceView } from './PieceView';
  * 仅做 UI 坐标映射（core (x, y) -> 展示 col = y, row = x），
  * 不改变 core 的坐标与规则语义，点击回传的仍是 core 坐标。
  */
-export function BoardView({ game }: { game: GameController }) {
+export function BoardView({ game }: { game: ReadyGameController }) {
   const { state, phase, selected, revealTargets, selectedMoveTargets, movablePieces, clickCell } =
     game;
   const ended = phase !== 'PLAYING';

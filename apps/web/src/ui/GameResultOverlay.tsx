@@ -1,5 +1,5 @@
 import type { FactionId } from '@darkchess/core';
-import type { GameController } from '../game/useGame';
+import type { GameController, ReadyGameController } from '../game/useGame';
 
 function factionName(game: GameController, id: FactionId | null): string {
   if (id === null) return '待定';
@@ -10,7 +10,7 @@ function factionName(game: GameController, id: FactionId | null): string {
  * 胜负原因从权威状态派生，不假设玩家数量：
  * 胜者即棋盘上唯一存留阵营，其余阵营棋子已全部离场（被吃光或随淘汰退出）。
  */
-function winReason(game: GameController, winner: FactionId): string {
+function winReason(game: ReadyGameController, winner: FactionId): string {
   const loserPieces = game.state.board.cells.filter(
     (c) => c.piece !== null && game.mode.factionOf(c.piece) !== winner,
   ).length;
@@ -18,7 +18,7 @@ function winReason(game: GameController, winner: FactionId): string {
 }
 
 /** 中央结算 Overlay：胜负/和棋 + 原因 + 新对局。 */
-export function GameResultOverlay({ game }: { game: GameController }) {
+export function GameResultOverlay({ game }: { game: ReadyGameController }) {
   const { state } = game;
   if (state.status.kind === 'inProgress') return null;
 

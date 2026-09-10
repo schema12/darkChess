@@ -1,12 +1,12 @@
 import type { FactionId } from '@darkchess/core';
-import type { GameController } from '../game/useGame';
+import type { GameController, ReadyGameController } from '../game/useGame';
 
 function factionName(game: GameController, id: FactionId | null): string {
   if (id === null) return '待定';
   return game.mode.factions.find((f) => f.id === id)?.displayName ?? id;
 }
 
-export function StatusBar({ game }: { game: GameController }) {
+export function StatusBar({ game }: { game: ReadyGameController }) {
   const { state, phase, newGame } = game;
 
   let text = '';
@@ -22,9 +22,12 @@ export function StatusBar({ game }: { game: GameController }) {
   return (
     <div className="statusbar">
       <span className="status-text">{text}</span>
-      <button type="button" onClick={newGame}>
-        新对局
-      </button>
+      {/* 联机模式没有“新对局”：房间生命周期由服务器管理。 */}
+      {game.online === null ? (
+        <button type="button" onClick={game.newGame}>
+          新对局
+        </button>
+      ) : null}
     </div>
   );
 }

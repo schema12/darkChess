@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client/websocket-session.ts",
+    "./protocol": "./src/protocol.ts"
+  },
   "scripts": {
     "dev": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",

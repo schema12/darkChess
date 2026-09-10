@@ -274,3 +274,84 @@ body {
 .result-card button:hover {
   background: #4c3a24;
 }
+
+/* —— 联机大厅 / 等待 / 断线卡片 —— */
+
+.lobby-card {
+  min-width: 300px;
+  max-width: 420px;
+  padding: 20px 26px;
+  text-align: center;
+  background: #f7ecd6;
+  color: #3a2d1c;
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+
+.lobby-card h2 {
+  margin: 0 0 10px;
+  font-size: 22px;
+}
+
+.lobby-hint {
+  margin: 6px 0;
+  font-size: 13px;
+  color: #6b5a3d;
+}
+
+.lobby-error {
+  margin: 8px 0;
+  font-size: 13px;
+  color: #c62828;
+  font-weight: 600;
+}
+
+.lobby-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  text-align: left;
+  font-size: 13px;
+  color: #6b5a3d;
+}
+
+.lobby-field input {
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid #8a6d3b;
+  border-radius: 6px;
+  background: #fffdf6;
+  color: #3a2d1c;
+}
+
+.lobby-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.lobby-actions button {
+  padding: 8px 18px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1px solid #8a6d3b;
+  border-radius: 8px;
+  background: #3a2d1c;
+  color: #f7ecd6;
+}
+
+.lobby-actions button.secondary {
+  background: transparent;
+  color: #6b5a3d;
+}
+
+.lobby-actions button:hover {
+  filter: brightness(1.12);
+}
+
+.lobby-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

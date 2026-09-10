@@ -1,46 +1,79 @@
-import { useState } from 'react';
-import { createDarkChess4x8Mode, createDarkChess3p4x8Mode } from '@darkchess/core';
-import type { GameMode } from '@darkchess/core';
-import { useGame } from './game/useGame';
-import { BoardView } from './ui/BoardView';
-import { DrawProgress } from './ui/DrawProgress';
-import { EliminationNotices } from './ui/EliminationNotices';
-import { GameResultOverlay } from './ui/GameResultOverlay';
-import { PlayerPanel } from './ui/PlayerPanel';
-import { StatusBar } from './ui/StatusBar';
+import { useMemo, useState } from 'react';
+import {
+  createDarkChess4x8Mode,
+  createDarkChess3p4x8Mode,
+} from '@darkchess/core';
+import { useLocalGame, useOnlineGame } from './game/useGame';
+import type { OnlineConnection } from './game/useGame';
+import { ConnectionPanel } from './ui/ConnectionPanel';
+import { GameView } from './ui/GameView';
 
-const MODES: ReadonlyArray<{ key: string; label: string; create: () => GameMode }> = [
-  { key: '2p', label: '两人', create: createDarkChess4x8Mode },
-  { key: '3p', label: '三人', create: createDarkChess3p4x8Mode },
-];
+type Screen =
+  | { readonly kind: 'local'; readonly players: '2p' | '3p' }
+  | { readonly kind: 'online-lobby' }
+  | { readonly kind: 'online'; readonly connection: OnlineConnection };
 
 export function App() {
-  const [modeKey, setModeKey] = useState('2p');
-  const createMode = MODES.find((m) => m.key === modeKey)?.create ?? createDarkChess4x8Mode;
-  const game = useGame(createMode);
+  const [screen, setScreen] = useState<Screen>({ kind: 'local', players: '2p' });
 
   return (
     <main className="app">
       <h1>DarkChess · 暗棋</h1>
-      <div className="mode-switch">
-        {MODES.map((m) => (
-          <button
-            key={m.key}
-            type="button"
-            className={m.key === modeKey ? 'active' : ''}
-            onClick={() => setModeKey(m.key)}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-      <StatusBar game={game} />
-      <PlayerPanel game={game} />
-      <EliminationNotices notices={game.eliminationNotices} />
-      <BoardView game={game} />
-      <DrawProgress state={game.state} />
-      <p className="hint">点击背面棋子翻棋；点击己方棋子选中，再点击高亮目标移动/吃子。</p>
-      <GameResultOverlay game={game} />
+      <nav className="mode-switch">
+        <button
+          type="button"
+          className={screen.kind === 'local' && screen.players === '2p' ? 'active' : ''}
+          onClick={() => setScreen({ kind: 'local', players: '2p' })}
+        >
+          本地·两人
+        </button>
+        <button
+          type="button"
+          className={screen.kind === 'local' && screen.players === '3p' ? 'active' : ''}
+          onClick={() => setScreen({ kind: 'local', players: '3p' })}
+        >
+          本地·三人
+        </button>
+        <button
+          type="button"
+          className={screen.kind === 'online-lobby' || screen.kind === 'online' ? 'active' : ''}
+          onClick={() => setScreen({ kind: 'online-lobby' })}
+        >
+          联机·三人
+        </button>
+      </nav>
+
+      {screen.kind === 'local' ? (
+        <LocalGame players={screen.players} />
+      ) : screen.kind === 'online-lobby' ? (
+        <ConnectionPanel
+          onConnect={(connection) => setScreen({ kind: 'online', connection })}
+          onCancel={() => setScreen({ kind: 'local', players: '2p' })}
+        />
+      ) : (
+        <OnlineGame connection={screen.connection} onExit={() => setScreen({ kind: 'online-lobby' })} />
+      )}
     </main>
   );
+}
+
+function LocalGame({ players }: { players: '2p' | '3p' }) {
+  // 工厂引用必须稳定（useMemo 依赖），否则模式/会话会随渲染重建。
+  const createMode = useMemo(
+    () => (players === '3p' ? createDarkChess3p4x8Mode : createDarkChess4x8Mode),
+    [players],
+  );
+  const game = useLocalGame(createMode);
+  return <GameView game={game} onExit={() => undefined} />;
+}
+
+function OnlineGame({
+  connection,
+  onExit,
+}: {
+  connection: OnlineConnection;
+  onExit: () => void;
+}) {
+  const game = useOnlineGame('dark-chess-3p-4x8', connection);
+  return <GameView game={game} onExit={onExit} />;
 }

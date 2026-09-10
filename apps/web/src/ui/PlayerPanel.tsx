@@ -1,11 +1,11 @@
-import type { GameController } from '../game/useGame';
+import type { GameController, ReadyGameController } from '../game/useGame';
 
 /**
  * 三名（或两名）玩家的公开状态面板：
  * 座位、当前回合高亮、已绑定阵营（公开信息）、已淘汰标记。
  * 只展示公共状态——不泄露任何未翻开棋子的类型/颜色/归属。
  */
-export function PlayerPanel({ game }: { game: GameController }) {
+export function PlayerPanel({ game }: { game: ReadyGameController }) {
   const { state, mode } = game;
   const playing = state.status.kind === 'inProgress';
 

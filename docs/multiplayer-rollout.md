@@ -148,3 +148,79 @@ FactionBinding / Stalemate / WinCondition / Draw / Serialization / Session-Comma
 - typecheck：core OK / server OK / web OK
 - web 生产构建：通过（72 modules / 164.91 kB JS）
 - 退出码：vitest 全部 0（server worker 清理阶段有非致命原生栈噪音，已记录）
+
+---
+
+# Stage 7：WebSocket 客户端接线与三人浏览器联机试玩 — COMPLETE
+
+## 架构
+
+```text
+Browser A/B/C（现有 useGame + UI）
+   ↓ WebSocketGameSession（@darkchess/server/client，零 Node 依赖）
+   ↓ ws://host/?room=<id>[&token=<重连令牌>]
+WebSocket 桥接（多房间路由：?room= 选房、?token= 跨房间恢复座位）
+   ↓
+GameRoom（权威，未改动） → GameEngine → 广播
+```
+
+- **会话语义**：`connectWebSocketGameSession` 在收到 welcome（服务端分配身份）时解析成功；
+  房间未满员开局前 `getState()` 返回 null（UI 显示等待房间）；状态广播经 `onState` 连接级事件
+  （不遗漏开局广播）与 `subscribe` 双通道到达。
+- **与本地 GameSession 的语义差异（异步权威的固有形状，已在接口文档声明）**：
+  `submit` 发送后无同步结果——新状态经 subscribe、拒绝经 onRejected 到达；
+  客户端不判定 winner/timeout/eliminated；`forfeit` 不暴露给客户端（超时=服务器计时器，认输=resign 消息）。
+- **安全边界（保持 Stage 4-6 设计）**：playerId/座位由服务端绑定连接；信封 playerId 声明无效；
+  winner/eliminated/timeout/faction 全部来自服务器广播；客户端引擎仅做高亮只读推导。
+- **隐藏信息模型（冻结设计）**：单一公共权威状态广播给所有客户端，未翻棋子对所有玩家在 UI
+  统一显示为 `?`；不存在 per-player 投影/遮蔽（按冻结规则明确不引入）。状态帧内含隐藏棋子
+  身份属于该信任模型的已知属性（记录于 P3）。
+
+## 修改文件
+
+| 文件 | 修改 |
+|---|---|
+| `apps/server/src/client/websocket-session.ts`（新增） | WebSocketGameSession：connect/submit/subscribe/close，最小 WsLike 结构接口（浏览器与 Node≥22 全局 WebSocket 均满足），连接超时、welcome 即就绪、onState/onRejected/onEliminated/onRoomStatus 事件。 |
+| `apps/server/src/index.ts` | 桥接升级为多房间：`?room=` 按需建房、`?token=` 跨房间恢复座位；HTTP 端点列出全部房间；close 清理全部房间与连接。默认单房间用法不变（既有测试零改动）。 |
+| `apps/server/package.json` | exports map：`.`/`./client`/`./protocol`（web 按需引用，不引入 Node 类型）。 |
+| `apps/web/src/game/useGame.ts` | 拆分为 `useLocalGame`（原热座路径，行为不变）与 `useOnlineGame`（联机：等待开局 null 态、onState 权威状态、服务器淘汰事件通知、重连 attempt 机制、localStorage 令牌持久化）。GameController 增 `online`/`reconnect`/`close`/`state: GameState \| null`。 |
+| `apps/web/src/ui/GameView.tsx`（新增） | 共享对局视图：等待房间卡片（已入座列表）、断线卡片（重连/返回）、就绪后复用 StatusBar/PlayerPanel/Notices/Board/DrawProgress/Overlay。 |
+| `apps/web/src/ui/ConnectionPanel.tsx`（新增） | 联机大厅：服务器 URL + 房间 ID 输入、加入/返回。 |
+| `apps/web/src/ui/*`（BoardView/PlayerPanel/StatusBar/GameResultOverlay） | 改用 `ReadyGameController`（state 非空），联机时隐藏“新对局”（房间生命周期归服务器）。 |
+| `apps/web/src/App.tsx` | 顶栏三入口：本地·两人 / 本地·三人 / 联机·三人；联机 = 大厅 → 会话视图。 |
+| `apps/web/src/styles.css` | 大厅/等待/断线卡片样式。 |
+| `apps/server/src/client-session.test.ts`（新增） | 7 个客户端会话测试（见下）。 |
+| `pnpm-lock.yaml`、`apps/web/package.json` | web 增加依赖 `@darkchess/server: workspace:*`。 |
+
+## 测试（总计 129/129 通过，0 失败）
+
+- Core：86/86（2P 51 零回归 + 3P 29 + session 15 + smoke 6 + serialization 18 按文件计）
+- Server：25/25
+  - room.test.ts：16/16（Stage 4-5，零回归）
+  - ws.integration.test.ts：2/2（Stage 4-6，零回归）
+  - **client-session.test.ts：7/7（新增，驱动浏览器同款 WebSocketGameSession）**：
+    1. connect → 服务端分配身份 → 等待期 null → 满员开局广播一致 → submit → 权威更新
+    2. 非当前玩家提交 → notCurrentPlayer 拒绝且状态不变
+    3. 伪造 playerId 信封 → 按连接身份处理（拒绝/接受均验证）
+    4. 三人同房 + 第四人拒绝（roomClosed）
+    5. 服务器 forfeit → eliminated(timeout) 事件 → 淘汰者提交 playerEliminated
+    6. 两次超时 → 三会话同收 timeout 淘汰 → `{won, winner:null, winnerPlayerId:'C'}` → 32 子保留
+    7. 重连：令牌恢复原 playerId + 最新状态；已淘汰者重连后提交仍被拒
+    8. 完整三人随机对局（固定种子，真实 WebSocket，三会话）：每步三方状态一致直至正常终局
+
+## 验证矩阵
+
+- typecheck：core ✅ server ✅ web ✅
+- web 生产构建 ✅（172.72 kB JS——客户端会话已入包）
+- 真实服务器 smoke ✅（tsx 启动 + HTTP 多房间状态端点）
+- 浏览器实体未启动：按本阶段 Windows 稳定性约束不启动浏览器进程；三人浏览器流程的
+  验证方式 = 三个 WebSocketGameSession 实例（与浏览器完全相同的代码路径）经真实 WebSocket
+  驱动完整对局（见 client-session 测试 7/7）。
+
+## 已知限制与遗留（P2/P3）
+
+- P2：联机 UI 无渲染自动化测试（与项目现状一致，typecheck + 会话层测试覆盖逻辑）；
+  单浏览器联机时以“当前回合玩家”名义操作（真三人需三浏览器，热座共享屏幕场景语义一致）。
+- P3：①权威状态帧包含未翻棋子身份（冻结的单一公共状态信任模型——UI 层统一 `?`，
+  引入 per-player 投影被冻结规则明确禁止）；②重连令牌存 localStorage（无数据库约束下的
+  刷新重连方案）；③vitest worker 退出时的原生栈噪音依旧（退出码 0）。
