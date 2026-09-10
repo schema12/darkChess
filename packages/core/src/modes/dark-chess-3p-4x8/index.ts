@@ -14,14 +14,15 @@ import {
   piecePool,
   PLAYER_A,
   PLAYER_B,
+  PLAYER_C,
 } from './config';
 import { createRuleSet } from './rules';
 
 /**
- * 玩法一：4×8 暗棋/翻棋。
- * createInitialState 随机打乱 32 棋子、全部背面朝上、玩家 A/B 阵营未定。
+ * 玩法二：三人 4×8 暗棋。
+ * createInitialState 随机打乱 32 棋子、全部背面朝上、玩家 A/B/C 阵营均未定。
  */
-export function createDarkChess4x8Mode(): GameMode {
+export function createDarkChess3p4x8Mode(): GameMode {
   const ruleSet = createRuleSet();
 
   return {
@@ -47,6 +48,7 @@ export function createDarkChess4x8Mode(): GameMode {
       const players: Player[] = [
         { id: PLAYER_A, name: null, factionId: null },
         { id: PLAYER_B, name: null, factionId: null },
+        { id: PLAYER_C, name: null, factionId: null },
       ];
 
       const state: GameState = {
@@ -67,4 +69,6 @@ export function createDarkChess4x8Mode(): GameMode {
   };
 }
 
-export * from './config';
+// 注意：此处不 `export * from './config'`——与 dark-chess-4x8 存在大量同名导出
+// （MODE_ID/piecePool/阈值等），两个玩法都从包根导出会冲突；外部如需三人配置，
+// 直接从 './modes/dark-chess-3p-4x8/config' 导入。

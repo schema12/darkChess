@@ -27,3 +27,10 @@ export interface Piece {
   readonly color: ColorId;
   readonly revealed: boolean; // 翻开后永久公开
 }
+
+/**
+ * 阵营判定所需的最小棋子引用。
+ * 两人玩法的阵营只由颜色决定；三人玩法的阵营由 (type, color) 共同决定
+ * （将/帅/兵/卒不论颜色同属一阵营），因此阵营函数以此为入参。
+ */
+export type FactionPieceRef = Pick<Piece, 'type' | 'color'>;

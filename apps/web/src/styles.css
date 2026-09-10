@@ -32,6 +32,27 @@ body {
   color: #cbb88f;
 }
 
+.mode-switch {
+  display: flex;
+  gap: 8px;
+}
+
+.mode-switch button {
+  padding: 5px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid #8a6d3b;
+  border-radius: 6px;
+  background: transparent;
+  color: #cbb88f;
+}
+
+.mode-switch button.active {
+  background: #e8d3ab;
+  color: #3a2d1c;
+  font-weight: 600;
+}
+
 .statusbar {
   display: flex;
   align-items: center;
@@ -57,8 +78,9 @@ body {
 }
 
 .board {
+  --cell-size: 64px;
   display: grid;
-  grid-auto-rows: 64px;
+  grid-auto-rows: var(--cell-size);
   gap: 0;
   border: 3px solid #8a6d3b;
   border-radius: 4px;
@@ -76,8 +98,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
+  width: var(--cell-size);
+  height: var(--cell-size);
   cursor: pointer;
   border: 1px solid rgba(138, 109, 59, 0.35);
   background-color: rgba(232, 211, 171, 0.35);
@@ -110,8 +132,8 @@ body {
 }
 
 .piece {
-  width: 56px;
-  height: 56px;
+  width: calc(var(--cell-size) - 8px);
+  height: calc(var(--cell-size) - 8px);
   user-select: none;
   pointer-events: none;
   transition: transform 120ms ease;
@@ -131,6 +153,81 @@ body {
 .draw-progress .near {
   color: #ffb74d;
   font-weight: 600;
+}
+
+.elimination-notices {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  color: #ffb74d;
+}
+
+.elimination-notice {
+  padding: 2px 10px;
+  border: 1px solid rgba(255, 183, 77, 0.45);
+  border-radius: 6px;
+  background: rgba(255, 183, 77, 0.08);
+}
+
+/* —— 玩家状态面板（公开信息：座位 / 回合 / 阵营 / 淘汰） —— */
+
+.player-panel {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.player-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: #cbb88f;
+  border: 1px solid rgba(138, 109, 59, 0.5);
+  border-radius: 8px;
+  background: rgba(232, 211, 171, 0.08);
+}
+
+.player-card.current {
+  color: #f5ecd6;
+  border-color: #ffb74d;
+  background: rgba(255, 183, 77, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 183, 77, 0.35);
+}
+
+.player-card.eliminated {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+.player-out {
+  color: #ff8a65;
+  font-weight: 600;
+}
+
+/* —— 横屏 / 小屏响应式：缩小棋盘格，面板换行，不遮挡棋盘 —— */
+
+@media (max-width: 720px), (max-height: 560px) {
+  .board {
+    --cell-size: min(11vw, 52px);
+  }
+
+  .app {
+    padding: 12px 8px 32px;
+    gap: 8px;
+  }
+
+  .app h1 {
+    font-size: 18px;
+  }
+
+  .hint {
+    display: none;
+  }
 }
 
 .overlay {

@@ -11,10 +11,21 @@ export type DrawReason =
   | { readonly kind: 'noCapture'; readonly threshold: number } // 连续未吃子达阈值
   | { readonly kind: 'repetition'; readonly count: number }; // 重复局面达次数
 
-/** 对局状态：进行中 / 某方胜 / 和棋。 */
+/**
+ * 对局状态：进行中 / 某方胜 / 和棋。
+ *
+ * `winner` 为胜方阵营（棋盘判据的胜负，如消灭制）；
+ * 多人玩法中“仅剩一名未淘汰玩家立即获胜”以玩家为判据——该玩家已绑定阵营时
+ * `winner` 为其阵营并附带 `winnerPlayerId`，尚未绑定时 `winner` 为 null
+ * 且必须提供 `winnerPlayerId`。
+ */
 export type GameStatus =
   | { readonly kind: 'inProgress' }
-  | { readonly kind: 'won'; readonly winner: FactionId }
+  | {
+      readonly kind: 'won';
+      readonly winner: FactionId | null;
+      readonly winnerPlayerId?: PlayerId;
+    }
   | { readonly kind: 'drawn'; readonly reason: DrawReason };
 
 /** 回放动作记录：动作 + 执行后局面指纹。 */

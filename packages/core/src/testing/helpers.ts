@@ -60,6 +60,44 @@ export function buildState(pieces: PlacedPiece[], opts: BuildOptions = {}): Game
   return { ...state, repetitionKey: computeRepetitionKey(state) };
 }
 
+export interface Build3pOptions {
+  currentPlayer?: PlayerId;
+  turnNumber?: number;
+  noCaptureCount?: number;
+  /** 默认三名玩家 A/B/C 且阵营均未定；需要预绑定阵营时显式传入。 */
+  players?: Player[];
+}
+
+/** 三人玩法（dark-chess-3p-4x8）的测试状态构造器，用法同 buildState。 */
+export function build3pState(pieces: PlacedPiece[], opts: Build3pOptions = {}): GameState {
+  let board = createBoard(4, 8);
+  pieces.forEach((p, i) => {
+    board = withPiece(
+      board,
+      { x: p.x, y: p.y },
+      { id: `t${i}`, type: p.type, color: p.color, revealed: p.revealed },
+    );
+  });
+  const players = opts.players ?? [
+    { id: 'A', name: null, factionId: null },
+    { id: 'B', name: null, factionId: null },
+    { id: 'C', name: null, factionId: null },
+  ];
+  const state: GameState = {
+    schemaVersion: SCHEMA_VERSION,
+    modeId: 'dark-chess-3p-4x8',
+    board,
+    players,
+    currentPlayerId: opts.currentPlayer ?? 'A',
+    turnNumber: opts.turnNumber ?? 0,
+    noCaptureCount: opts.noCaptureCount ?? 0,
+    status: { kind: 'inProgress' },
+    repetitionKey: '',
+    actionLog: [],
+  };
+  return { ...state, repetitionKey: computeRepetitionKey(state) };
+}
+
 export const mode = createDarkChess4x8Mode();
 export const engine = createEngine(mode);
 

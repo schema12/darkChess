@@ -30,7 +30,7 @@ export function BoardView({ game }: { game: GameController }) {
       className={`board${ended ? ' ended' : ''}`}
       style={{
         backgroundImage: `url("${assetRegistry.board(displayCols, displayRows)}")`,
-        gridTemplateColumns: `repeat(${displayCols}, 64px)`,
+        gridTemplateColumns: `repeat(${displayCols}, var(--cell-size))`,
       }}
     >
       {order.map(({ x, y }) => {

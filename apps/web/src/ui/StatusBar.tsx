@@ -12,7 +12,11 @@ export function StatusBar({ game }: { game: GameController }) {
   let text = '';
   if (phase === 'PLAYING') {
     const cur = state.players.find((p) => p.id === state.currentPlayerId);
-    text = `轮到 ${factionName(game, cur?.factionId ?? null)} · 第 ${state.turnNumber + 1} 手`;
+    // 玩家数不限（两人/三人通用）：以“玩家 + 阵营”标识当前行动方；
+    // 阵营未定显示“待定”，不暗示任何隐藏信息。
+    text = `轮到 玩家${cur?.id ?? '?'}（${factionName(game, cur?.factionId ?? null)}） · 第 ${
+      state.turnNumber + 1
+    } 手`;
   }
 
   return (

@@ -1,7 +1,8 @@
 import { isInBounds, pieceAt } from '../model/board';
 import type { Position } from '../model/board';
 import type { GameState } from '../model/game-state';
-import type { ColorId, FactionId } from '../model/ids';
+import type { FactionId } from '../model/ids';
+import type { FactionPieceRef } from '../model/piece';
 import type { CaptureRule } from './capture';
 
 /**
@@ -20,9 +21,13 @@ export type MovementRuleKind =
   | 'slide'
   | 'cannonSlide';
 
-/** 移动规则需要的上下文：颜色->阵营映射 与 吃子规则。 */
+/**
+ * 移动规则需要的上下文：棋子->阵营映射 与 吃子规则。
+ * 阵营以 (type, color) 共同判定：两人玩法只看颜色，
+ * 三人玩法中将/帅/兵/卒不论颜色同属一阵营。
+ */
 export interface MovementContext {
-  factionForColor(color: ColorId): FactionId;
+  factionOf(piece: FactionPieceRef): FactionId;
   capture: CaptureRule;
 }
 
@@ -55,7 +60,7 @@ function stepRule(ctx: MovementContext, dirs: ReadonlyArray<readonly [number, nu
     legalDestinations(state, from) {
       const piece = pieceAt(state.board, from);
       if (!piece) return [];
-      const own = ctx.factionForColor(piece.color);
+      const own = ctx.factionOf(piece);
       const result: Position[] = [];
       for (const [dx, dy] of dirs) {
         const to = { x: from.x + dx, y: from.y + dy };
@@ -66,7 +71,7 @@ function stepRule(ctx: MovementContext, dirs: ReadonlyArray<readonly [number, nu
           continue;
         }
         if (!target.revealed) continue;
-        if (ctx.factionForColor(target.color) === own) continue;
+        if (ctx.factionOf(target) === own) continue;
         if (ctx.capture.canCapture(piece.type, target.type)) result.push(to);
       }
       return result;
@@ -80,7 +85,7 @@ export function slide(ctx: MovementContext): MovementRule {
     legalDestinations(state, from) {
       const piece = pieceAt(state.board, from);
       if (!piece) return [];
-      const own = ctx.factionForColor(piece.color);
+      const own = ctx.factionOf(piece);
       const result: Position[] = [];
       for (const [dx, dy] of ORTHOGONAL_DIRS) {
         let x = from.x + dx;
@@ -96,7 +101,7 @@ export function slide(ctx: MovementContext): MovementRule {
           // 遇到第一个棋子：若为可吃的敌方则作为吃子目标，随后停止（不可越子）。
           if (
             target.revealed &&
-            ctx.factionForColor(target.color) !== own &&
+            ctx.factionOf(target) !== own &&
             ctx.capture.canCapture(piece.type, target.type)
           ) {
             result.push({ x, y });
@@ -115,7 +120,7 @@ export function cannonSlide(ctx: MovementContext): MovementRule {
     legalDestinations(state, from) {
       const piece = pieceAt(state.board, from);
       if (!piece) return [];
-      const own = ctx.factionForColor(piece.color);
+      const own = ctx.factionOf(piece);
       const result: Position[] = [];
       for (const [dx, dy] of ORTHOGONAL_DIRS) {
         let x = from.x + dx;
@@ -139,7 +144,7 @@ export function cannonSlide(ctx: MovementContext): MovementRule {
         if (
           target !== null &&
           target.revealed &&
-          ctx.factionForColor(target.color) !== own &&
+          ctx.factionOf(target) !== own &&
           ctx.capture.canCapture(piece.type, target.type)
         ) {
           result.push({ x: tx, y: ty });

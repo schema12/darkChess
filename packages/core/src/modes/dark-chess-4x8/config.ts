@@ -1,4 +1,5 @@
 import type { Faction } from '../../model/faction';
+import type { FactionPieceRef } from '../../model/piece';
 import type { BoardConfig, PieceSpec } from '../game-mode';
 import type { PieceType } from '../../model/piece';
 
@@ -40,6 +41,14 @@ export function factionForColor(color: string): string {
   if (color === COLOR_RED) return FACTION_RED;
   if (color === COLOR_BLACK) return FACTION_BLACK;
   throw new Error(`未知棋子颜色: ${color}`);
+}
+
+/**
+ * 棋子（类型+颜色）-> 阵营：二人玩法的阵营只由颜色决定（GameMode.factionOf 的实现）。
+ * 忽略 type，仅为与多人数玩法的统一阵营接口保持一致。
+ */
+export function factionOfPiece(piece: FactionPieceRef): string {
+  return factionForColor(piece.color);
 }
 
 function specs(type: PieceType, color: string, count: number): PieceSpec[] {

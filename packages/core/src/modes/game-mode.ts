@@ -1,6 +1,6 @@
 import type { ColorId, FactionId } from '../model/ids';
 import type { GameState } from '../model/game-state';
-import type { PieceType } from '../model/piece';
+import type { FactionPieceRef, PieceType } from '../model/piece';
 import type { Faction } from '../model/faction';
 import type { RuleSet } from '../rules/rule-set';
 
@@ -29,8 +29,8 @@ export interface GameMode {
   readonly piecePool: readonly PieceSpec[];
   readonly ruleSet: RuleSet;
 
-  /** 棋子颜色 -> 阵营（当前玩法为恒等映射；未来可多色归一或非颜色归属）。 */
-  factionForColor(color: ColorId): FactionId;
+  /** 棋子（类型+颜色）-> 阵营。两人玩法只看颜色；三人玩法由 (type, color) 共同决定。 */
+  factionOf(piece: FactionPieceRef): FactionId;
 
   /** 创建开局状态：随机打乱 + 全背面 + 玩家 A/B（阵营未定）。 */
   createInitialState(seed?: number): GameState;

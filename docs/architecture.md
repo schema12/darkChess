@@ -50,16 +50,25 @@ DarkChess/
 │           │   ├── win-condition.ts
 │           │   ├── draw-condition.ts
 │           │   ├── rule-set.ts
-│           │   └── turn.ts
+│           │   ├── turn.ts
+│           │   ├── faction-binding.ts  # 阵营绑定规则（何时/如何确定玩家阵营）
+│           │   └── stalemate.ts        # 僵局结算规则（当前玩家无动作时的处置）
 │           ├── engine/                 # 通用引擎（与具体玩法无关）
 │           │   └── game-engine.ts
 │           ├── modes/                  # 具体玩法（每玩法一个目录）
 │           │   ├── game-mode.ts        # GameMode 接口
-│           │   └── dark-chess-4x8/     # 玩法一：4×8 暗棋（Phase 2 填充规则）
+│           │   ├── dark-chess-4x8/     # 玩法一：4×8 暗棋（两人）
+│           │   │   ├── index.ts
+│           │   │   ├── config.ts       # 棋盘尺寸、棋子池、阵营
+│           │   │   └── rules.ts        # 吃子表、移动规则、胜负/和棋
+│           │   └── dark-chess-3p-4x8/  # 玩法二：三人 4×8 暗棋
 │           │       ├── index.ts
-│           │       ├── config.ts       # 棋盘尺寸、棋子池、阵营
-│           │       └── rules.ts        # 吃子表、移动规则、胜负/和棋
-│           └── rng/                    # 随机源抽象（可注入 seed，便于测试/回放）
+│           │       ├── config.ts       # 三阵营（按 type+color 判定）、棋子池
+│           │       └── rules.ts        # 渐进阵营绑定、淘汰制僵局、兵吃全部
+│           ├── rng/                    # 随机源抽象（可注入 seed，便于测试/回放）
+│           └── session/                # 会话/协议层（多人化基础）
+│               ├── command.ts          # 动作信封 + 权威校验/执行
+│               └── game-session.ts     # GameSession 接口 + 本地（热座）会话
 ├── apps/
 │   └── web/                            # React 前端（Phase 4 实现 UI）
 │       ├── index.html
@@ -305,6 +314,41 @@ interface TurnManager {
 - 每动作 = 一回合；动作后换手。
 - 维护 `turnNumber` 与 `noCaptureCount`（仅吃子重置计数）。
 
+### 4.7 FactionBindingRule（阵营绑定）
+
+```ts
+interface RevealEvent {
+  readonly revealerId: PlayerId;
+  readonly revealedColor: ColorId;
+  readonly revealedType: PieceType;  // 阵营可由 (type, color) 共同决定
+}
+
+interface FactionBindingRule {
+  apply(state: GameState, event: RevealEvent | null): readonly Player[];
+}
+```
+
+- 引擎在每次动作应用后调用（非翻棋动作 `event` 为 null），用返回值替换玩家列表；
+- 何时绑定、把哪个阵营绑给谁完全由玩法决定（当前二人玩法：所有玩家阵营未定时的首次翻棋 → 翻棋者得翻出颜色的阵营、其余玩家得另一阵营）；
+- 开局即固定阵营的玩法使用 `createStaticFactionBinding()`（恒等）；
+- 引擎不假设玩家数、阵营数及其对应关系（三人玩法接入点之一）。
+
+### 4.8 StalemateRule（僵局结算）
+
+```ts
+type StalemateResolution =
+  | { readonly kind: 'ended'; readonly status: GameStatus }      // 就此终局
+  | { readonly kind: 'continue'; readonly state: GameState };    // 处置后继续（引擎重新结算）
+
+interface StalemateRule {
+  resolve(state: GameState): StalemateResolution | null;  // null 表示不在此结算
+}
+```
+
+- 当胜负条件与和棋条件都未命中、且当前玩家没有任何合法动作时，引擎调用它做最终结算；
+- “无动作如何处置”属于玩法规则（二人玩法：对手获胜；其他玩法可判和或另有安排），引擎不做假设（三人玩法接入点之一）；
+- 终局结算顺序固定为：胜负条件 → 和棋条件 → 僵局规则。
+
 ---
 
 ## 5. GameMode 抽象
@@ -317,8 +361,8 @@ interface GameMode {
   readonly factions: readonly Faction[];
   readonly piecePool: readonly PieceSpec[];        // 32 个固定棋子规格
   readonly ruleSet: RuleSet;
-  factionForColor(color: ColorId): FactionId;
-  createInitialState(seed?: number): GameState;    // 随机打乱 + 全背面 + 玩家 A/B
+  factionOf(piece: FactionPieceRef): FactionId;  // 棋子（类型+颜色）-> 阵营
+  createInitialState(seed?: number): GameState;    // 随机打乱 + 全背面 + 玩家（人数由玩法定）
   validateAction(state: GameState, action: GameAction): MoveValidation;
   applyAction(state: GameState, action: GameAction): GameState;
 }
@@ -337,7 +381,7 @@ interface GameEngine {
 }
 ```
 
-- 引擎只做：取得当前玩家 → 汇集合法动作（翻棋/移动/吃子）→ 校验 → 应用并结算胜负/和棋 → 换手。
+- 引擎只做：取得当前玩家 → 汇集合法动作（翻棋/移动/吃子）→ 校验 → 应用 → 结算（胜负/和棋/僵局）→ 换手；阵营绑定同样经 RuleSet 委托给玩法。
 - 引擎**不感知** 4×8、红黑、棋子名、玩法细节；全部通过 `mode.ruleSet` 与 `mode` 接口获得。
 - 状态为纯函数式演进：`next = engine.apply(state, action)`，输入输出皆可序列化。
 
@@ -350,12 +394,12 @@ interface GameEngine {
 - 被前端、未来 AI、未来服务端复用；绝不依赖渲染。
 
 ### 7.2 `apps/web`（纯展示 + 输入）
-- 渲染 `GameState`，把用户点击转成 `GameAction`，调用 `engine.apply` 得到新状态再渲染。
+- 渲染 `GameState`，把用户点击转成带发送者的指令（`CommandEnvelope`），经 `GameSession.submit` 提交给权威方执行，状态通过 `subscribe` 从权威方获得（单机下为本地会话，同步生效）。engine 仅用于合法动作的视图推导（高亮提示），不再是状态的最终执行者。
 - 动画（翻棋/移动/吃子）、回合/胜负提示均为展示层，**不包含规则逻辑**。
 - 资源层 `assets/registry.ts`：以 `key`（如 `piece:KING:RED`、`piece-back:RED`、`board`）→ 加载器的方式提供素材；当前用程序生成的 SVG 占位，后续换最终素材不改核心逻辑。
 
 ### 7.3 `apps/server`（阶段一不做，仅预留边界）
-- 未来做房间/联网时，服务端持有权威 `GameState`，复用 `core` 做校验，客户端只提交 `GameAction`。
+- 未来做房间/联网时，服务端持有权威 `GameState`，对每条客户端消息调用 `applyCommand`（含发送者与回合校验），客户端只提交 `CommandEnvelope`，经同一 `GameSession` 接口接入（见第 12 节）。
 
 ---
 
@@ -401,3 +445,73 @@ interface Rng { nextInt(maxExclusive: number): number } // 可注入 seed
 - **Phase 5**：试玩，规则问题优先修引擎。
 
 > 阶段一明确不开发：联网匹配、房间、账号、支付、广告、排行榜、聊天、社交、商城、成就、其他未描述玩法。
+
+---
+
+## 12. 会话 / 协议层（多人化第一阶段）
+
+为从单机演进到多人对局，在规则引擎之上新增一层**与传输无关**的会话/协议抽象（`src/session/`）。它不引入任何具体玩法规则，只改变“谁执行引擎”的拓扑：客户端提交动作，权威方校验并执行。
+
+### 12.1 CommandEnvelope（动作信封）
+
+```ts
+interface CommandEnvelope {
+  readonly playerId: PlayerId;  // 提交者（座位）身份
+  readonly action: GameAction;  // 规则层动作本身
+}
+```
+
+- `GameAction` 保持纯规则语义（翻棋/移动），不含发送者；“谁提交的”用信封包装；
+- 序号、时间戳等传输层字段留待真正联网时由传输层扩展，不在此预设。
+
+### 12.2 权威校验与执行
+
+```ts
+validateCommand(engine, state, command): CommandValidation;  // 纯校验，不改状态
+applyCommand(engine, state, command): GameState;             // 校验通过才应用，否则抛错
+```
+
+- 拒绝顺序：对局已结束（`gameOver`）→ 提交者不存在（`unknownPlayer`）→ 未轮到提交者（`notCurrentPlayer`）→ 动作不合法（`illegalAction`）；
+- 发送者校验先于动作校验，不向未授权提交者泄露规则细节；
+- 未来 `apps/server` 的每个房间持有 engine，对每条客户端消息调用 `applyCommand`，失败时把结构化 code/reason 回传客户端。
+
+### 12.3 GameSession（会话接口）
+
+```ts
+interface GameSession {
+  getState(): GameState;
+  submit(command: CommandEnvelope): CommandOutcome;   // accepted(state) | rejected(code, reason)
+  subscribe(listener): Unsubscribe;                   // 接收权威状态更新
+}
+```
+
+- `createLocalSession(mode, { seed?, initialState? })`：本地会话（单机热座 / loopback 传输），会话自身即权威执行方，submit 同步生效；
+- 前端 `useGame` 已改为经由会话提交动作，engine 仅用于合法动作的视图推导（高亮）；
+- 未来联网：以 WebSocket 实现同一 `GameSession` 接口（submit 走网络、subscribe 收权威状态），UI 代码无需改动。
+
+### 12.4 尚未包含（后续阶段）
+
+mode registry、房间/账号、断线重连、传输层序号与确认。
+
+---
+
+## 13. 玩法二：三人 4×8 暗棋（`modes/dark-chess-3p-4x8`）
+
+三人玩法完全通过既有扩展点接入，引擎零改动。规则要点与实现映射：
+
+| 规则 | 实现位置 |
+|---|---|
+| 三阵营（将帅兵卒 12 枚 / 红普通 10 枚 / 黑普通 10 枚），阵营由 `(type, color)` 共同判定 | `config.ts` 的 `factions` + `factionOfPiece`（`GameMode.factionOf`） |
+| 翻到未占据阵营即获得；翻到已占阵营保持未分配；剩一未分配玩家自动获得最后阵营 | `rules.ts` 的 `createProgressiveFactionBinding`（RuleSet.factionBinding） |
+| 兵/卒可吃任意类型敌方；王不吃兵；士不吃王；象不吃王/士；同阵营永不互吃 | `rules.ts` 吃子表（敌我由阵营过滤，类型表仅表达能力） |
+| 移动/吃子形态与两人玩法一致 | 复用 `orthogonalStep/diagonalStep/slide/cannonSlide` 工厂 |
+| 无合法走/吃但仍有未翻棋子 → 只能翻棋 | 引擎 `getLegalActions`：未绑定玩家与已绑定玩家统一只暴露翻棋 + 己方棋子动作 |
+| 全员翻开后无合法动作 → 当前玩家判负退出，剩余玩家继续 | `rules.ts` 的 `createEliminateCurrentPlayerStalemate`（RuleSet.stalemate 返回 `continue`） |
+| **淘汰 = 仅标记玩家 `eliminated`**：其阵营棋子全部保留在棋盘原位置（玩家淘汰 ≠ 阵营棋子消失），可被其他阵营正常捕获 | `Player.eliminated?`；`rules/turn.ts` 的 `nextActivePlayerId` 跳过已淘汰玩家 |
+| 超时/认输判负：权威判负入口（服务端计时器/认输处理调用，客户端不得自行修改淘汰状态） | `GameEngine.forfeit(state, playerId)`；session 层 `GameSession.forfeit(playerId)` |
+| 两名玩家被淘汰后，最后一名未淘汰玩家立即获胜（以玩家为判据；尚未绑定阵营时以 `status.winnerPlayerId` 表达） | `createLastActivePlayerWinCondition`（WinCondition 返回 `WinOutcome`：faction / player 双判据） |
+| 胜负 = 棋盘只剩一个阵营（与玩家是否仍持子无关） | 复用 `createEliminationWinCondition`（N 阵营通用） |
+| 和棋：重复局面 5 次 / 无吃子 40 步，阈值可配置 | 复用两个 DrawCondition；`createRuleSet(options)` 暴露阈值 |
+
+序列化：`Player.eliminated` 为可选字段（旧两人存档兼容），纳入 `repetitionKey` 指纹；schemaVersion 不变。
+Web：`App` 提供两人/三人切换；所有玩家看到相同棋盘，未翻棋子统一显示背面（无任何归属提示）。

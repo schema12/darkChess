@@ -6,14 +6,15 @@ function factionName(game: GameController, id: FactionId | null): string {
   return game.mode.factions.find((f) => f.id === id)?.displayName ?? id;
 }
 
-/** 胜负原因从权威状态派生（不做文字猜测）。 */
+/**
+ * 胜负原因从权威状态派生，不假设玩家数量：
+ * 胜者即棋盘上唯一存留阵营，其余阵营棋子已全部离场（被吃光或随淘汰退出）。
+ */
 function winReason(game: GameController, winner: FactionId): string {
-  const loser = game.mode.factions.find((f) => f.id !== winner)?.id;
-  if (loser === undefined) return '';
   const loserPieces = game.state.board.cells.filter(
-    (c) => c.piece !== null && game.mode.factionForColor(c.piece.color) === loser,
+    (c) => c.piece !== null && game.mode.factionOf(c.piece) !== winner,
   ).length;
-  return loserPieces === 0 ? '对方棋子全部被吃光' : '对方无棋可走';
+  return loserPieces === 0 ? '其余阵营棋子已全部被消灭' : '其余阵营已无棋可走';
 }
 
 /** 中央结算 Overlay：胜负/和棋 + 原因 + 新对局。 */
@@ -24,8 +25,20 @@ export function GameResultOverlay({ game }: { game: GameController }) {
   let title: string;
   let reason: string;
   if (state.status.kind === 'won') {
-    title = `${factionName(game, state.status.winner)}获胜`;
-    reason = winReason(game, state.status.winner);
+    const winnerFaction = state.status.winner;
+    if (state.status.winnerPlayerId !== undefined) {
+      // 玩家判据胜负（多人玩法：仅剩一名未淘汰玩家）。
+      const faction = winnerFaction !== null ? factionName(game, winnerFaction) : null;
+      title = `玩家${state.status.winnerPlayerId}获胜${faction ? `（${faction}）` : ''}`;
+      reason = '其余玩家均已判负淘汰';
+    } else if (winnerFaction !== null) {
+      // 阵营判据胜负（棋盘上只剩该阵营的棋子）。
+      title = `${factionName(game, winnerFaction)}获胜`;
+      reason = winReason(game, winnerFaction);
+    } else {
+      title = '对局结束';
+      reason = '';
+    }
   } else {
     title = '和棋';
     reason =
