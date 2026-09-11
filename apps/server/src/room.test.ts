@@ -77,8 +77,8 @@ describe('GameRoom：入座与开局', () => {
     const result = room.join(fourth.connection);
 
     expect(result.ok).toBe(false);
-    // 满员即自动开局，因此第四人命中的是 roomClosed（房间已开始）。
-    expect(fourth.lastOfType('rejected')).toMatchObject({ code: 'roomClosed' });
+    // room.join 现在只返回结构化 code，rejected 由桥接层发送（终端房替换逻辑所在层）。
+    expect(result.code).toBe('roomClosed');
     expect(room.getStatus()).toBe('playing');
     expect(room.playersInfo()).toHaveLength(3);
   });

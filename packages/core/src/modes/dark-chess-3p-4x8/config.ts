@@ -36,6 +36,12 @@ export const PLAYER_C = 'C';
 export const NO_CAPTURE_DRAW_THRESHOLD = 40;
 export const REPETITION_DRAW_THRESHOLD = 5;
 
+/** UI 消费用的阈值元数据（与两人玩法的同名常量区分，避免整包导出冲突）。 */
+export const DRAW_THRESHOLDS = {
+  noCapture: NO_CAPTURE_DRAW_THRESHOLD,
+  repetition: REPETITION_DRAW_THRESHOLD,
+} as const;
+
 /**
  * 阵营定义。注意 Faction.colors 仅为展示性元数据：本玩法中阵营并非
  * 只由颜色决定（将/帅/兵/卒不论颜色同属将帅兵卒阵营），权威判定见 factionOfPiece。

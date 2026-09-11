@@ -29,7 +29,12 @@ export type ServerMessage =
       readonly status: RoomStatus;
       readonly players: readonly RoomPlayerInfo[];
     }
-  | { readonly type: 'state'; readonly state: GameState }
+  | {
+      readonly type: 'state';
+      readonly state: GameState;
+      /** 当前回合剩余秒数（广播时间点取样；null/缺省 = 不限时）。权威判定仍在服务端。 */
+      readonly turnRemainingSec?: number | null;
+    }
   | { readonly type: 'eliminated'; readonly playerId: PlayerId; readonly reason: EliminationReason }
   | { readonly type: 'rejected'; readonly code: string; readonly reason: string };
 

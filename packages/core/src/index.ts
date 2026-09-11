@@ -32,6 +32,7 @@ export * from './modes/game-mode';
 export * from './modes/dark-chess-4x8';
 // 三人玩法不整包导出（与两人玩法存在同名导出冲突），只导出模式工厂。
 export { createDarkChess3p4x8Mode } from './modes/dark-chess-3p-4x8';
+export { DRAW_THRESHOLDS as THREE_PLAYER_DRAW_THRESHOLDS } from './modes/dark-chess-3p-4x8/config';
 export type { ThreePlayerRuleOptions } from './modes/dark-chess-3p-4x8/rules';
 
 // 随机源

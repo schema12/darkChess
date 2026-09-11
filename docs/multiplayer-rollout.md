@@ -224,3 +224,173 @@ GameRoom（权威，未改动） → GameEngine → 广播
 - P3：①权威状态帧包含未翻棋子身份（冻结的单一公共状态信任模型——UI 层统一 `?`，
   引入 per-player 投影被冻结规则明确禁止）；②重连令牌存 localStorage（无数据库约束下的
   刷新重连方案）；③vitest worker 退出时的原生栈噪音依旧（退出码 0）。
+
+---
+
+# UI 信息架构落地 + 局域网联机访问（Phase 1–4）— COMPLETE
+
+## Phase 1 UI 骨架
+- App 重写为「壳页面 + 沉浸式对局页」两层：壳 = 首页/联机/设置（共享底部导航），
+  对局页（本地/联机）**不渲染底部导航**，经 Header「← 返回」退出。
+- 新页面：`HomePage`（本地·两人/本地·三人入口卡 + 联机大入口 + 快速开始 Future 占位）、
+  `OnlinePage`（联机·两人【暂未开放，IA 预留】/ 联机·三人【立即进入】+ 返回当前房间）、
+  `SettingsPage`（游戏/声音/外观/联机/关于五分组）、`RoomPage`（ConnectionPanel 正式化：
+  表单 + 座位列表 ●/○ + 等待 x/3 + 重连令牌提示 + 退出房间）。
+- `RoomPage`→`GamePage` 由 App 自动切换（权威状态到达即开局）；联机会话提升到 App 层。
+
+## Phase 2 GamePage 分区
+- 新 `GameHeader`（← 返回 / 模式·房间 / 联机连接状态 或 ⚙设置）；`StatusBar` 删除，
+  信息拆入 Header 与新 `game-status` 区（当前行动方+阵营 / 手数 / 上下文人话提示）。
+- 新 `Toast`（顶部短暂提示，3.2s 自动消失，不阻塞）。
+- **联机座位门控**：本浏览器只操作自己的座位（ownTurn 门控，非本回合棋盘不亮子、
+  点击提示「还没轮到你行动」）——与服务器权威校验一致，多设备各管一座。
+- 修复：`useLocalGame`「新对局」此前只清选中、从未重建会话 → epoch 重建。
+- 终局 Overlay 增加「返回」出口；联机隐藏「新对局」。
+
+## Phase 3 局域网
+- `vite.config.ts`：`server.host = true` / `preview.host = true`（监听全部接口，零依赖升级）。
+- WS 地址自动适配：`defaultServerUrl()` = 页面协议(ws/wss) + 当前 hostname + :8787
+  （手机访问 http://<PC-IP>:5173 → 自动得 ws://<PC-IP>:8787；localhost 同理）；无协议输入自动补全。
+- **真实验证**：`lan.test.ts` 从本机非内部 IPv4（192.168.x.x）发起 WebSocket 入座成功（server 26/26）；
+  Vite dev 以 LAN IP 实测 HTTP 200（localhost 与 192.168.154.1 均 200，Network 地址正常打印）。
+- **未做**：真实手机第二设备测试（本环境无第二设备）；Windows 防火墙首次运行 Node 需人工放行（文档提醒）。
+
+## Phase 4 人话化与设置
+- `friendly.ts`：协议码→用户文案（notCurrentPlayer→还没轮到你行动、playerEliminated→你已被淘汰…、
+  timeout→⏱ 玩家X操作超时…）；拒绝统一走 Toast；原始 code 仅 console.debug（调试面板后续接入）。
+- 设置实装：音效开关+音量（`soundManager.configure`，localStorage 持久化 `settings.ts`）、
+  默认服务器地址（喂给房间页表单）；其余分组灰显占位。
+- `DrawProgress` 阈值改由 `modeDrawThresholds(modeId)` 读取（2P 顶层常量 / 3P 新增
+  `DRAW_THRESHOLDS` 配置导出——core 仅导出、零逻辑改动），2P/3P 均正确。
+
+## 验证
+- core 86/86 · server 26/26（+1 LAN 实测） · web typecheck/build 通过 · 三包 typecheck 通过
+- 进程零残留（tasklist node.exe = 0）；无 schtasks/无限循环/自动重试
+
+---
+
+# 联机回归诊断与修复：RoomPage 永不发起 WebSocket 连接
+
+## 根因（确定性，非猜测）
+
+UI IA 阶段把联机会话提升到 App 层后，`useOnlineGame` 在 App 挂载时即存在，其初始
+`online.status = 'connecting'` 在**未请求任何连接**时同样是 'connecting'；而 RoomPage
+以 `online.status !== 'closed'` 判定"连接中"→ **加入房间表单分支永不渲染** →
+`onJoin`/`setOnlineConn` 永不触发 → App 始终传入 NULL_CONNECTION →
+`useOnlineGame` effect 命中空连接守卫提前返回 → `new WebSocket()` 从未执行。
+与全部现象吻合：无 WS 请求、players: []、反复退出重进无效（空闲态未被重置）。
+LAN/防火墙/协议/Server 均无关（TcpTestSucceeded 与 HTTP 200 与此一致）。
+
+## 最小修复（仅 web，3 文件）
+
+1. `useGame.ts`：`OnlineStatus` 增加 `'idle'`；初始状态按 `connection.url` 区分
+   idle/connecting；effect 空连接分支重置为 idle（同引用防重渲染循环）。
+2. `RoomPage.tsx`：`connecting` 排除 `'idle'` → 空闲时渲染表单。
+3. `GameHeader.tsx`：idle 显示"未连接"（防御，正常不可达）。
+
+## 验证
+
+- 修复后链路实测（真实 server，端口 8787，LAN 绑定）：3 客户端依次 connect →
+  分配 A/B/C → 0/3→3/3 → status playing → 三方权威状态一致 → 翻棋广播 turn=1 → 换手 B。
+- core 86/86 · server 26/26 · web typecheck/build 通过 · 无进程/端口残留。
+
+## 待人工验收清单（用户 LAN 环境）
+
+1. `pnpm --filter @darkchess/server dev` + `pnpm --filter @darkchess/web dev`
+2. PC 浏览器 A/B/C（或手机）访问 http://192.168.1.157:5173 → 联机 → 联机·三人
+3. **确认房间页出现"加入房间"表单（本次修复的判定点）**
+4. 填 ws://192.168.1.157:8787 + room-1 → 加入 → 座位列表 1/3→2/3→3/3 → 自动开局
+5. Network 面板应出现 `ws://192.168.1.157:8787/?room=room-1`
+
+---
+
+# 收尾阶段：联机 2P + 个性化结算 + 淘汰观战（阶段 1–4）— COMPLETE
+
+## 阶段 1 联机 2P
+- 读码确认：Room 的 `seatIds` 本就完全参数化（join 顺序分配座位、`seats.size === seatIds.length`
+  自动开局），GameSession/GameEngine 模式无关；唯一缺口是桥接层将单一 mode 写死给所有房间。
+- 最小修改：`startDarkChessServer` 增加可选 `extraModes`（key/mode/seatIds），连接 URL
+  `?mode=<key>` 选择模式；房间内部键 `<modeKey>:<roomId>`（同名 roomId 的 2P/3P 互不干扰）；
+  `getRoom(roomId, modeKey?)`；默认行为不变（无 ?mode= → 默认模式，既有测试零改动）。
+- 客户端：`connectWebSocketGameSession` 增加 `mode` URL 参数；`OnlineConnection.mode`；
+  App 按 conn.mode 选择 GameMode；OnlinePage 启用联机·两人；RoomPage 按 mode 显示 x/2 或 x/3。
+- 新测试 `two-player-online.test.ts`（7 个，真实 WebSocket）：满员开局/座位分配/双方状态一致、
+  第三人拒绝、模式路由互不干扰、完整随机对局至终局（含翻棋/移动/吃子/回合/胜负）、
+  非当前+伪造 playerId 拒绝、超时判负（未绑阵营 → winner:null + winnerPlayerId）、断线重连。
+
+## 阶段 2 个性化结算
+- `GameResultOverlay` 增加 `viewerId`（联机 = 本机 playerId；本地热座保持中性展示）：
+  胜利（获胜阵营：X）／失败（获胜者：玩家X（阵营））／已淘汰（本局获胜者：…）三态；
+  玩家判据与阵营判据、eliminated 与 active 全部区分。
+
+## 阶段 3 淘汰观战
+- 淘汰玩家收到选择卡「你已被淘汰：[继续观战] [退出房间]」；继续观战仅本地 UI 态——
+  保持 WebSocket 连接、playerId、eliminated，持续接收广播，结算页显示“已淘汰”；
+  退出房间走既有 exitOnline（服务端断线保留座位机制不变）。
+- 淘汰玩家点击棋盘提示「你已经被淘汰，无法继续行动」（区别于未轮到的提示）。
+
+## 阶段 4 清理与封存
+- 清理：删除弃用 `.mode-switch` CSS；README 更新为实际状态（四种玩法/入口/命令/封存声明）；
+  无 TODO/FIXME/调试遗留（console.debug 为有意保留的协议调试输出）。
+- 最终回归：core 86/86 · server 33/33 · web typecheck+build ✅ · 双模式入口 smoke ✅ · 进程零残留。
+
+---
+
+# Stage 8–13：v1.0 收尾（token 生命周期 / 计时 / 审计 / 封存）
+
+## Stage 8 reconnect token / Room 生命周期（根因与修复）
+
+**根因**（读码定位，确定性）：①token 的 localStorage key 不含模式 → 3P/2P 同名 roomId 共用；
+②terminal 后 token 永不删除；③桥接 rejoin 跨模式扫描全部房间且不检查房间状态；
+④finished 房间永久占据 (mode, roomId) 槽位，阻塞新游戏。
+
+**修复**：
+- 客户端：token key 改为 `darkchess:ws:${url}:${mode}:${roomId}`；**收到 terminal 广播即删除
+  token**（凭证 = 恢复进行中对局，对局结束使命即完成）；RoomPage 令牌提示按 (url, mode, roomId)。
+- 服务端：rejoin 仅在连接所属模式的房间中查找（跨模式 token → invalidToken）；
+  **显式新 join 命中 finished 房间时以全新对局替换同名房间**（旧结果此前已广播送达，旧 token 失效）；
+  room.join 不再自行发送 rejected（由桥接在最终失败时发送，消除替换竞态）。
+
+测试 `lifecycle.test.ts`（7 个）：进行中断线重连回归（2P/3P）、terminal→同名房间全新对局、
+旧 token 失效（invalidToken）、3P token × 2P 流程隔离、2P token × 3P 流程隔离、
+败/胜方各自重开、terminal 不阻塞新 Room。
+
+## Stage 9 好友房可选计时（服务端权威）
+
+- 策略：房间创建时经 URL `?timer=<秒>`（钳制 5–600s）固定；off/缺省 = 不限时；后加入者沿用房间策略。
+  本地模式永不计时。概念预留 friend/matchmaking 模式区分（v1 仅实现 friend）。
+- 服务端：`turnDeadline` 跟踪；所有 state 广播（含开局/行动/判负/rejoin）统一携带
+  `turnRemainingSec`（null=不限时）；超时判负复用既有 armTimer→forfeit，绝不自动走子。
+- 客户端：显示用倒计时（mm:ss，≤10s 红色脉动），每条权威广播重新同步——服务器仍是唯一权威。
+- RoomPage 新增计时选择（不限时/30/60/90/120）；GamePage 仅在计时房显示倒计时。
+- 测试 `timer.test.ts`（4 个）：不限时无计时字段、计时房倒计时/行动重置、服务端超时判负
+  （终局广播 remaining=null）、重连后剩余时间正确（计时继续、不因断线清除）。
+
+## Stage 10 LAN 验收
+
+真实入口 smoke（双模式 main.ts、8787、LAN IP 198.18.0.1）：2P 计时房开局 ✅、3P 房开局 ✅、
+HTTP 房间总览 ✅、干净退出零进程残留 ✅。2P/3P 完整随机对局、重连、token 隔离、超时由
+真实 WebSocket 测试套件覆盖（two-player-online / client-session / lifecycle / timer）。
+**未做**：物理多设备（手机/平板）人工流程——需用户按 docs 清单执行一次。
+
+## Stage 11 安全/架构审计
+
+- 权威性：grep 证实 web 端无 forfeit/winner/eliminated/currentPlayer 写入路径；
+  client session 不暴露 forfeit；一切状态变更仅经 server validateCommand → engine.apply。
+- playerId：服务端以连接绑定身份处理指令，消息体声明的身份一律无效（已有测试覆盖伪造场景）。
+- **隐藏信息模型（v1.0 事实声明）**：server 向所有客户端广播完整 GameState，UI 层统一以 `?`
+  渲染未翻棋子——即“UI 隐藏，非网络层隐藏”。对 LAN/好友房可接受；**v1.0 明确不提供公网
+  陌生人匹配**；未来 v2 若实现公网匹配，必须先拆分 PublicGameState / PrivatePlayerState。
+
+## Stage 12 UI 收尾
+
+设置项全部真实生效（音效开关/音量→soundManager、默认服务器→房间页表单）或诚实标“预留”
+（游戏/外观，灰显不可点）；页面流程无死路（对局页 Header 返回、结算 Overlay 返回、
+淘汰选择卡、房间页退出）；计时 UI 按策略显示；联机状态（idle/connecting/waiting/playing/
+disconnected/terminal）均有明确用户可见表达。
+
+## Stage 13 最终矩阵
+
+本地 2P/3P ✅ · 好友联机 2P/3P ✅ · 好友房不限时/可选计时 ✅ · 服务端 timeout ✅ · timeout UI ✅ ·
+reconnect ✅ · terminal token 隔离 ✅ · 新局不恢复旧局 ✅ · 淘汰 ✅ · 淘汰观战 ✅ · 个性化结算 ✅ ·
+LAN 2P/3P ✅（自动化等价验证）。陌生人匹配 = ❌ v1.0 不实现（Future v2）。

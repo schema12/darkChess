@@ -7,10 +7,14 @@ export type SoundEvent = 'reveal' | 'move' | 'capture' | 'win' | 'draw';
 
 export interface SoundManager {
   play(event: SoundEvent): void;
+  /** 开关与音量（设置页实装；音量为增益乘数 0–1）。 */
+  configure(options: { enabled?: boolean; volume?: number }): void;
 }
 
 export function createSoundManager(): SoundManager {
   let ctx: AudioContext | null = null;
+  let enabled = true;
+  let volume = 1;
 
   function ensureContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -34,6 +38,7 @@ export function createSoundManager(): SoundManager {
     gain = 0.12,
     delay = 0,
   ): void {
+    if (!enabled || volume <= 0) return;
     const c = ensureContext();
     if (!c) return;
     const t0 = c.currentTime + delay;
@@ -41,8 +46,9 @@ export function createSoundManager(): SoundManager {
     const g = c.createGain();
     osc.type = type;
     osc.frequency.value = freq;
+    const peak = Math.max(0.0001, gain * volume);
     g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
     osc.connect(g);
     g.connect(c.destination);
@@ -52,8 +58,7 @@ export function createSoundManager(): SoundManager {
 
   return {
     play(event) {
-      switch (event) {
-        case 'reveal':
+      switch (event) {        case 'reveal':
           tone(660, 0.09, 'triangle', 0.12);
           break;
         case 'move':
@@ -72,6 +77,10 @@ export function createSoundManager(): SoundManager {
           tone(311.13, 0.24, 'sine', 0.11, 0.16);
           break;
       }
+    },
+    configure(options) {
+      if (options.enabled !== undefined) enabled = options.enabled;
+      if (options.volume !== undefined) volume = Math.min(1, Math.max(0, options.volume));
     },
   };
 }

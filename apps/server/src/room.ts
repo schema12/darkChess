@@ -48,6 +48,8 @@ export interface GameRoomConfig {
 export interface JoinResult {
   readonly ok: boolean;
   readonly reason?: string;
+  /** 失败原因码（roomFull / roomClosed），由调用方（桥接）决定是否发送给客户端。 */
+  readonly code?: string;
   readonly playerId?: PlayerId;
   readonly token?: string;
 }
@@ -77,6 +79,8 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
   let state: GameState | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let timerGeneration = 0;
+  /** 当前回合截止时刻（ms 时间戳）；null = 不限时/非对局阶段。 */
+  let turnDeadline: number | null = null;
 
   function seatInfo(seat: Seat): RoomPlayerInfo {
     const player = state?.players.find((pl) => pl.id === seat.playerId);
@@ -106,12 +110,25 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       clearTimeout(timer);
       timer = null;
     }
+    turnDeadline = null;
+  }
+
+  /** 当前回合剩余秒数（向上取整）；不限时返回 null。广播时间点取样，权威判定仍在服务端。 */
+  function remainingSec(): number | null {
+    if (turnDeadline === null) return null;
+    return Math.max(0, Math.ceil((turnDeadline - Date.now()) / 1000));
+  }
+
+  /** state 广播统一携带计时信息（null = 不限时）。 */
+  function stateMessage(st: GameState): ServerMessage {
+    return { type: 'state', state: st, turnRemainingSec: remainingSec() };
   }
 
   function armTimer(): void {
     disarmTimer();
     if (config.turnTimeoutMs === undefined || status !== 'playing') return;
     if (!state || state.status.kind !== 'inProgress') return;
+    turnDeadline = Date.now() + config.turnTimeoutMs;
     const generation = timerGeneration;
     timer = setTimeout(() => {
       if (generation !== timerGeneration) return;
@@ -124,7 +141,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
   function finish(): void {
     status = 'finished';
     disarmTimer();
-    if (state) broadcast({ type: 'state', state });
+    if (state) broadcast(stateMessage(state));
     broadcastRoomStatus();
   }
 
@@ -151,8 +168,8 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     state = next;
     announceEliminations(previous, reason);
     if (state.status.kind === 'inProgress') {
-      broadcast({ type: 'state', state });
-      armTimer(); // 换手后重置计时
+      armTimer(); // 先重置计时，广播携带新回合的剩余时间
+      broadcast(stateMessage(state));
     } else {
       finish();
     }
@@ -163,22 +180,20 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     if (status !== 'waiting') return;
     state = config.mode.createInitialState(config.seed);
     status = 'playing';
-    broadcast({ type: 'state', state });
+    armTimer(); // 先重置计时，开局广播携带剩余时间
+    broadcast(stateMessage(state));
     broadcastRoomStatus();
-    armTimer();
   }
 
   function join(connection: RoomConnection): JoinResult {
     if (status !== 'waiting') {
-      const reason = '房间已开始或已结束，无法加入';
-      connection.send({ type: 'rejected', code: 'roomClosed', reason });
-      return { ok: false, reason };
+      // 不直接发送 rejected：桥接可能对 finished 房间做“新对局替换”后重新 join，
+      // 由桥接在最终失败时统一发送，避免客户端过早失败。
+      return { ok: false, reason: '房间已开始或已结束，无法加入', code: 'roomClosed' };
     }
     const seatId = config.seatIds.find((id) => !seats.has(id));
     if (seatId === undefined) {
-      const reason = '房间已满';
-      connection.send({ type: 'rejected', code: 'roomFull', reason });
-      return { ok: false, reason };
+      return { ok: false, reason: '房间已满', code: 'roomFull' };
     }
     const seat: Seat = {
       playerId: seatId,
@@ -216,7 +231,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       token,
       status,
     });
-    if (state) connection.send({ type: 'state', state });
+    if (state) connection.send(stateMessage(state));
     broadcastRoomStatus();
     return { ok: true, playerId: seat.playerId, token };
   }
@@ -245,8 +260,8 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     state = engine.apply(state, action);
     announceEliminations(previous, 'noLegalAction');
     if (state.status.kind === 'inProgress') {
-      broadcast({ type: 'state', state });
-      armTimer(); // 正常行动后重置计时
+      armTimer(); // 先重置计时，广播携带新回合的剩余时间
+      broadcast(stateMessage(state));
     } else {
       finish();
     }

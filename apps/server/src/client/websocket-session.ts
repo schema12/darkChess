@@ -32,6 +32,8 @@ export interface WebSocketSessionEvents {
   onConnectionChange?(status: ConnectionStatus): void;
   /** 每次权威状态广播（含连接期触发的开局广播——不会错过任何一份）。 */
   onState?(state: GameState): void;
+  /** 每次权威状态广播携带的回合剩余秒数（null = 不限时）。 */
+  onTurnRemainingSec?(sec: number | null): void;
   /** 服务器拒绝（notCurrentPlayer / illegalAction / playerEliminated / roomClosed 等）。 */
   onRejected?(rejection: { code: string; reason: string }): void;
   /** 服务器权威淘汰（原因由服务器声明：timeout / noLegalAction / resign）。 */
@@ -47,6 +49,10 @@ export interface WebSocketSessionOptions extends WebSocketSessionEvents {
   roomId?: string;
   /** 重连令牌（此前 welcome 返回的 token）；提供时恢复原座位。 */
   token?: string;
+  /** 模式选择（服务器 URL ?mode= 参数，如 '2p' | '3p'）；缺省为服务器默认模式。 */
+  mode?: string;
+  /** 计时秒数（URL ?timer= 参数；仅对新建房间生效）。缺省 = 不限时。 */
+  timerSec?: number;
   /** 连接超时毫秒，缺省 5000。 */
   connectTimeoutMs?: number;
   /** WebSocket 工厂（测试可注入）；缺省使用环境全局 WebSocket。 */
@@ -87,11 +93,19 @@ export interface ConnectedWebSocketSession {
   initialStatus: RoomStatus;
 }
 
-function buildUrl(url: string, roomId: string | undefined, token: string | undefined): string {
+function buildUrl(
+  url: string,
+  roomId: string | undefined,
+  token: string | undefined,
+  mode: string | undefined,
+  timerSec: number | undefined,
+): string {
   const base = url.replace(/\/+$/, '');
   const params = new URLSearchParams();
   if (roomId !== undefined) params.set('room', roomId);
   if (token !== undefined) params.set('token', token);
+  if (mode !== undefined) params.set('mode', mode);
+  if (timerSec !== undefined) params.set('timer', String(timerSec));
   const query = params.toString();
   return query.length > 0 ? `${base}/?${query}` : `${base}/`;
 }
@@ -115,10 +129,13 @@ export function connectWebSocketGameSession(
     url,
     roomId,
     token,
+    mode,
+    timerSec,
     connectTimeoutMs = 5000,
     webSocketFactory,
     onConnectionChange,
     onState,
+    onTurnRemainingSec,
     onRejected,
     onEliminated,
     onRoomStatus,
@@ -135,7 +152,7 @@ export function connectWebSocketGameSession(
 
     let ws: WsLike;
     try {
-      ws = (webSocketFactory ?? defaultWebSocketFactory)(buildUrl(url, roomId, token));
+      ws = (webSocketFactory ?? defaultWebSocketFactory)(buildUrl(url, roomId, token, mode, timerSec));
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
@@ -213,6 +230,7 @@ export function connectWebSocketGameSession(
           latest = message.state;
           // 连接级事件先于订阅者通知：任何状态广播（含连接期开局广播）都不遗漏。
           onState?.(message.state);
+          onTurnRemainingSec?.(message.turnRemainingSec ?? null);
           for (const listener of [...listeners]) listener(message.state);
           break;
         case 'rejected':
