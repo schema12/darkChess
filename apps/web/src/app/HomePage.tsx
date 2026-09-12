@@ -17,7 +17,7 @@ export function HomePage({
         <h3>本地游戏</h3>
         <div className="entry-grid">
           <button type="button" className="entry-card" onClick={() => onLocal('2p')}>
-            <span className="entry-title">本地·两人</span>
+            <span className="entry-title">本地·双人</span>
             <span className="entry-desc">同一屏幕轮流操作</span>
           </button>
           <button type="button" className="entry-card" onClick={() => onLocal('3p')}>

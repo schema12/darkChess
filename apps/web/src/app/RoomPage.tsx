@@ -38,7 +38,7 @@ export function RoomPage({
 
   return (
     <div className="page">
-      <h2 className="page-title">联机·{mode === '3p' ? '三人' : '两人'}</h2>
+      <h2 className="page-title">联机·{mode === '3p' ? '三人' : '双人'}</h2>
 
       {!connecting ? (
         <div className="room-form">
@@ -86,7 +86,7 @@ export function RoomPage({
           {online?.config ? (
             <p className="page-hint ok">
               房间配置（房主决定）：
-              {online.config.modeId === 'dark-chess-3p-4x8' ? '三人' : '两人'} ·{' '}
+              {online.config.modeId === 'dark-chess-3p-4x8' ? '三人' : '双人'} ·{' '}
               {online.config.timerSec !== null ? `每回合 ${online.config.timerSec} 秒` : '不限时'}
             </p>
           ) : null}

@@ -47,6 +47,8 @@ export type ServerMessage =
       readonly type: 'drawResponse';
       readonly fromPlayerId: PlayerId;
       readonly accept: boolean;
+      /** true = 本次回应使提议终结（拒绝/作废/全体同意）；false = 多人局仍有待回应者。 */
+      readonly resolved: boolean;
     }
   | {
       readonly type: 'state';

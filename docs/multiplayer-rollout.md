@@ -687,3 +687,48 @@ Ready 列表按 roomPlayers.connected 显示：离线座位 → “玩家B已离
 
 core 86/86 · server **74/74**（+2 回合限制）· web typecheck/build ✅ · 零进程残留。
 Browser-level / Physical LAN：PENDING MANUAL。
+
+---
+
+# v1.0.3.3：第二轮 LAN 修复（Draw Reject 链路 / Result 样式恢复 / 双人文案）
+
+## 1. Draw Reject 根因（日志驱动，双层断点）
+
+用户日志证明 server 端一切正常（pendingDraw 建立、重复请求正确拒绝）。断点在客户端消费：
+
+1. **B 的弹窗不关闭**：`drawResponse` 广播的 `fromPlayerId` 是**响应者 B 本人**，而客户端清除
+   条件误写为 `pendingDrawRef.current（'A'，发起者）=== fromPlayerId（'B'）` → 永不相等 →
+   B 的弹窗（依赖控制器 pendingDrawFrom='A'）永不关闭。
+2. **再点同意无反应**：server 已在 reject 分支清空 pendingDraw → B 的同意因
+   `pendingDraw === null` 被静默忽略——正确防重复行为，非 bug。
+3. **A 收不到拒绝提示**：同一错误条件把发起者的过程提示也挡掉了。
+
+**修复**：drawResponse 广播新增 `resolved` 标志（拒绝/作废/全体同意 = true，多人局部分同意
+= false）；客户端消费规则：**本人回执 → 关闭自己弹窗；resolved → 所有等待者弹窗关闭**；
+非本人回应 → Toast 过程提示（发起者看到“玩家B拒绝和棋”）。
+另发现并修正服务器次序 bug：`partial` 判定先于响应者过滤，导致 2P 最后一人同意被标为
+resolved=false（并产生一条无 resolved 的重复广播）——先过滤后判定。
+
+## 2. Turn restriction（已确定产品规则，服务器权威 + 测试锁定）
+
+resign / drawOffer 仅当前行动玩家（非当前 → notCurrentPlayer 权威拒绝）；
+drawResponse 不限当前回合（任何待回应存活玩家均可）。Web 认输/求和按钮仅在本人
+为当前行动玩家时渲染。回归测试锁定（tr-1/tr-2）。
+
+## 3. Result UI 样式恢复 + 宽度对齐
+
+v1.0.3.1 的布局重构把按钮移出了 `.result-card`，但旧的 `.result-card button` 选择器
+随之失效 → 按钮退化为浏览器默认样式（白底蓝字/字体偏小——用户所见）。
+修复：`.result-wrap .result-actions button` 恢复 v1.0.0 按钮视觉（16px、深底、棕框、
+圆角 8px、hover）；**result-wrap 改 `align-items: stretch`**——按钮行与 Ready 行
+自动与 result-card 同宽（卡片正下、逐项居中）；ready 字体保持 13px。
+
+## 4. 双人文案
+
+玩家可见文案统一“两人”→“双人”（首页/联机页/房间页/对局 Header 模式标签）；
+内部标识（modeId/2P/变量名）未动。
+
+## 结果
+
+core 86/86 · server **74/74** · web typecheck/build ✅ · 零进程残留。
+LAN 人工验收：**PENDING**（Draw reject 链路 / Result UI / 双人文案按任务清单执行）。

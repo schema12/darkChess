@@ -346,7 +346,7 @@ export function useOnlineGame(
   const [myDrawCount, setMyDrawCount] = useState(0);
   const [pendingDrawFrom, setPendingDrawFrom] = useState<string | null>(null);
   const onDrawOfferRef = useRef<(e: { fromPlayerId: string; count: number; max: number }) => void>(() => undefined);
-  const onDrawResponseRef = useRef<(e: { fromPlayerId: string; accept: boolean }) => void>(() => undefined);
+  const onDrawResponseRef = useRef<(e: { fromPlayerId: string; accept: boolean; resolved: boolean }) => void>(() => undefined);
   const onSendFailRef = useRef<(label: string) => void>(() => undefined);
   // LAN 延迟诊断（仅 DEV 构建）：submit → 收到权威 state 的往返时延 + turn 对齐。
   const dev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
@@ -373,8 +373,12 @@ export function useOnlineGame(
     }
   };
   onDrawResponseRef.current = (event) => {
-    if (pendingDrawRef.current === event.fromPlayerId) {
+    // 回执=本人 → 关闭自己的弹窗；resolved（拒绝/作废/全体同意）→ 所有等待者弹窗关闭。
+    if (event.fromPlayerId === onlineRef.current.playerId || event.resolved) {
       setPendingDrawFrom(null);
+    }
+    // 过程提示：发起者能看到“被拒绝/被同意”（复用现有 Toast，不新造 UI）。
+    if (event.fromPlayerId !== onlineRef.current.playerId) {
       showToast(`玩家${event.fromPlayerId}${event.accept ? '同意和棋' : '拒绝和棋'}`);
     }
   };

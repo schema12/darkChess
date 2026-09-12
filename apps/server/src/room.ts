@@ -470,12 +470,15 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
   function handleDrawResponse(playerId: PlayerId, accept: boolean): void {
     if (pendingDraw === null || !pendingDraw.awaiting.includes(playerId)) return;
     const from = pendingDraw.from;
-    broadcast({ type: 'drawResponse', fromPlayerId: playerId, accept });
     if (!accept) {
-      pendingDraw = null; // 拒绝：对局继续（发起者次数已消耗）
+      pendingDraw = null; // 拒绝：提议终结（发起者次数已消耗），对局继续
+      broadcast({ type: 'drawResponse', fromPlayerId: playerId, accept, resolved: true });
       return;
     }
+    // 先移除响应者再判定是否终结（2P 最后一人同意也必须 resolved=true）。
     pendingDraw = { ...pendingDraw, awaiting: pendingDraw.awaiting.filter((id) => id !== playerId) };
+    const partial = pendingDraw.awaiting.length > 0;
+    broadcast({ type: 'drawResponse', fromPlayerId: playerId, accept, resolved: !partial });
     if (pendingDraw.awaiting.length === 0) {
       // 全体存活玩家同意：权威和棋（产品级终局，服务器权威判定）。
       pendingDraw = null;
@@ -492,7 +495,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     if (seats.get(pendingDraw.from)?.connected !== true) {
       const from = pendingDraw.from;
       pendingDraw = null;
-      broadcast({ type: 'drawResponse', fromPlayerId: from, accept: false });
+      broadcast({ type: 'drawResponse', fromPlayerId: from, accept: false, resolved: true });
       return;
     }
     const broken = pendingDraw.awaiting.find((id) => {
@@ -503,7 +506,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     if (broken !== undefined) {
       const from = pendingDraw.from;
       pendingDraw = null;
-      broadcast({ type: 'drawResponse', fromPlayerId: broken, accept: false });
+      broadcast({ type: 'drawResponse', fromPlayerId: broken, accept: false, resolved: true });
     }
   }
 

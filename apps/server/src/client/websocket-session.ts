@@ -44,8 +44,8 @@ export interface WebSocketSessionEvents {
   onState?(state: GameState, turnRemainingSec: number | null): void;
   /** 求和提议广播（含发起者自己的回执，用于更新剩余次数）。 */
   onDrawOffer?(event: { fromPlayerId: PlayerId; count: number; max: number }): void;
-  /** 求和回应广播（同意/拒绝/提议失效）。 */
-  onDrawResponse?(event: { fromPlayerId: PlayerId; accept: boolean }): void;
+  /** 求和回应广播（accept + resolved：true = 提议已终结）。 */
+  onDrawResponse?(event: { fromPlayerId: PlayerId; accept: boolean; resolved: boolean }): void;
   /** 服务器拒绝（notCurrentPlayer / illegalAction / playerEliminated / roomClosed 等）。 */
   onRejected?(rejection: { code: string; reason: string }): void;
   /** 服务器权威淘汰（原因由服务器声明：timeout / noLegalAction / resign）。 */
@@ -325,7 +325,11 @@ export function connectWebSocketGameSession(
           });
           break;
         case 'drawResponse':
-          onDrawResponse?.({ fromPlayerId: message.fromPlayerId, accept: message.accept });
+          onDrawResponse?.({
+            fromPlayerId: message.fromPlayerId,
+            accept: message.accept,
+            resolved: message.resolved,
+          });
           break;
         case 'roomStatus':
           onRoomStatus?.(message.status, message.players, message.config, message.rematchReady);

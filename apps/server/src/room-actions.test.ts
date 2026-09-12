@@ -33,7 +33,7 @@ interface Harness {
   rejections: Array<{ code: string; reason: string }>;
   eliminations: Array<{ playerId: string; reason: string }>;
   drawOffers: Array<{ fromPlayerId: string; count: number; max: number }>;
-  drawResponses: Array<{ fromPlayerId: string; accept: boolean }>;
+  drawResponses: Array<{ fromPlayerId: string; accept: boolean; resolved: boolean }>;
   token: string;
   playerId: string;
   getState(): ReturnType<WebSocketGameSession['getState']>;
@@ -134,21 +134,22 @@ describe('v1.0.3：求和（draw offer）', () => {
     const b = await join('dr-1', '2p');
     await untilStarted(a, b);
 
-    // 第 1 次：提议 → B 收到（count 1/3）→ B 拒绝 → 继续
+    // 第 1 次：提议 → B 收到（count 1/3）→ B 拒绝 → 提议终结（resolved）→ 继续
     a.drawOffer();
     await until(() => b.drawOffers.length === 1, 2000);
     expect(b.drawOffers[0]).toMatchObject({ fromPlayerId: 'A', count: 1, max: 3 });
     b.drawResponse(false);
     await until(() => a.drawResponses.length === 1, 2000);
-    expect(a.drawResponses[0]!.accept).toBe(false);
+    expect(a.drawResponses[0]!).toMatchObject({ fromPlayerId: 'B', accept: false, resolved: true });
     expect(a.getState()!.status.kind).toBe('inProgress');
 
-    // 第 2 次：提议 → B 同意 → 权威和棋（agreement）
+    // 第 2 次：reject 后再次发起正常 → B 同意 → 权威和棋（agreement）
     a.drawOffer();
     await until(() => b.drawOffers.length === 2, 2000);
     expect(b.drawOffers[1]!.count).toBe(2); // 拒绝同样消耗
     b.drawResponse(true);
     await until(() => a.getState()?.status.kind === 'drawn', 3000);
+    expect(a.drawResponses[1]!).toMatchObject({ fromPlayerId: 'B', accept: true, resolved: true });
     expect(a.getState()!.status).toEqual({ kind: 'drawn', reason: { kind: 'agreement' } });
     a.close();
     b.close();

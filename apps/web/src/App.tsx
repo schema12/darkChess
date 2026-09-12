@@ -134,7 +134,7 @@ function LocalGameScreen({ players, onExit }: { players: '2p' | '3p'; onExit: ()
   return (
     <GameView
       game={game}
-      modeLabel={players === '3p' ? '本地·三人' : '本地·两人'}
+      modeLabel={players === '3p' ? '本地·三人' : '本地·双人'}
       onExit={onExit}
       onSettings={onExit}
     />
@@ -154,7 +154,7 @@ function OnlineGameScreen({
   return (
     <GameView
       game={game}
-      modeLabel={game.mode.id === 'dark-chess-3p-4x8' ? '联机·三人' : '联机·两人'}
+      modeLabel={game.mode.id === 'dark-chess-3p-4x8' ? '联机·三人' : '联机·双人'}
       onExit={onExit}
       onSettings={onSettings}
     />

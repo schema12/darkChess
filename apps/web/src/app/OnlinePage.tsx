@@ -22,7 +22,7 @@ export function OnlinePage({
 
       <div className="entry-grid">
         <button type="button" className="entry-card" onClick={onEnter2p}>
-          <span className="entry-title">联机·两人</span>
+          <span className="entry-title">联机·双人</span>
           <span className="entry-desc">双人房间 · 立即进入</span>
         </button>
         <button type="button" className="entry-card" onClick={onEnter3p}>
