@@ -392,6 +392,7 @@ export function useOnlineGame(
   // 重置条件 = 回合变化或秒数变化——相邻两回合同值（30→30）也必须重置（Bug1 根因）。
   const [turnTimer, setTurnTimer] = useState<{
     turn: number;
+    player: string;
     policySec: number;
     deadline: number;
   } | null>(null);
@@ -502,12 +503,14 @@ export function useOnlineGame(
             if (
               prevTimer !== null &&
               prevTimer.turn === next.turnNumber &&
+              prevTimer.player === next.currentPlayerId &&
               prevTimer.policySec === remaining
             ) {
               return prevTimer; // 同一回合内的重复广播：保持现基准
             }
             return {
               turn: next.turnNumber,
+              player: next.currentPlayerId,
               policySec: remaining,
               deadline: Date.now() + remaining * 1000,
             };

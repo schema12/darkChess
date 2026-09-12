@@ -126,6 +126,11 @@ describe('v1.0.2.1：timeout / noLegalAction 语义互斥（P0-1）', () => {
     expect(a.getState()!.status.kind).toBe('inProgress');
     expect(a.getState()!.currentPlayerId).toBe('B');
     expect(a.remaining.latest).toBe(5);
+    // 客户端计时重置键所依赖的服务器契约：forfeit 轮转回合但不递增 turnNumber。
+    const preTurn = a.states[a.states.length - 2]!; // 淘汰前（A 回合）的最后一次广播
+    expect(a.getState()!.turnNumber).toBe(preTurn.turnNumber); // turnNumber 不变
+    expect(preTurn.currentPlayerId).toBe('A'); // 淘汰前是 A 的回合
+    expect(a.getState()!.currentPlayerId).toBe('B'); // 淘汰后轮转给 B（player 变化 → 客户端重置计时）
     expect(b.remaining.latest).toBe(5);
     a.close();
     b.close();

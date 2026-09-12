@@ -757,3 +757,34 @@ LAN 人工验收：**PENDING**（Draw reject 链路 / Result UI / 双人文案�
 ## 结果
 
 core 86/86 · server **75/75**（+1）· web typecheck/build ✅ · 零进程残留。
+
+---
+
+# v1.0.3.5：淘汰轮转后的计时残留修复（B 回合 00:00）
+
+## 根因
+
+forfeit（超时/认输/无合法行动淘汰）轮转当前玩家但**不递增 turnNumber**（forfeit 非
+Action，不进 actionLog——既定模型）。客户端计时重置的去重键只含
+`(turnNumber, policySec)`：淘汰后广播的 turnNumber 与 remaining（满额）都与淘汰前
+**完全相同** → 被判为"同一回合的重复广播"而保留**已过期的旧 deadline** → 新行动者
+B 的卡片在其整个回合显示 00:00；B 落子后 turnNumber 变化才恢复（与实测
+"下一回合恢复正常"完全吻合）。
+
+## 修复（最小，仅客户端一处）
+
+计时去重键扩展为 `(turnNumber, currentPlayerId, policySec)`——淘汰轮转后
+currentPlayerId 变化即触发重置（满额 30s）；同回合重复广播仍保持现基准。
+本地模式无计时，不受影响；服务端无任何改动（forfeit 后广播 remaining=满额 的
+行为本就正确）。
+
+## 契约锁定测试
+
+elimination-semantics.test.ts 补充断言：超时 forfeit 后 turnNumber 不变、
+currentPlayerId 轮转（A→B）、remaining = 满额——锁定客户端重置键所依赖的
+服务器契约，防止未来服务端改动静默破坏该机制。
+
+## 结果
+
+core 86/86 · server **75/75** · web typecheck/build ✅ · 零进程残留。
+渲染效果与 00:00 残留的实际消失：PENDING MANUAL（下轮 LAN 验收确认）。
