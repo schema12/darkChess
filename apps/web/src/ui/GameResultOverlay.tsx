@@ -79,15 +79,14 @@ export function GameResultOverlay({
 
     return (
     <div className="result-wrap">
-      <div className="overlay">
-        <div className="result-card">
-          <div className={`result-mark ${title === '胜' ? 'win' : title === '和' ? 'draw' : ''}`}>
-            {title}
-          </div>
-          {winnerLine ? <p className="reason">{winnerLine}</p> : null}
+      <div className="result-card">
+        <div className={`result-mark ${title === '胜' ? 'win' : title === '和' ? 'draw' : ''}`}>
+          {title}
         </div>
-        {/* 操作按钮位于结果弹窗外部、弹窗下方（产品规格） */}
-        <div className="result-actions">
+        {winnerLine ? <p className="reason">{winnerLine}</p> : null}
+      </div>
+      {/* 操作按钮位于结果卡片外部、卡片正下方（产品规格） */}
+      <div className="result-actions">
           {online !== null ? (
             <button type="button" onClick={game.rematchReadyAction ?? undefined}>
               再来一局
@@ -108,14 +107,17 @@ export function GameResultOverlay({
         {online !== null ? (
           <p className="rematch-ready">
             {state.players
-              .map(
-                (p) =>
-                  `玩家${p.id}${readyList.includes(p.id) ? ' ✓' : online.playerId === p.id && !iAmReady ? '（等待你准备）' : ' 等待准备'}`,
-              )
+              .map((p) => {
+                const connected =
+                  online.roomPlayers.find((rp) => rp.playerId === p.id)?.connected !== false;
+                if (!connected) return `玩家${p.id}已离线，等待重新加入`;
+                if (readyList.includes(p.id)) return `玩家${p.id} ✓`;
+                if (online.playerId === p.id && !iAmReady) return `玩家${p.id}（等待你准备）`;
+                return `玩家${p.id} 等待准备`;
+              })
               .join(' · ')}
           </p>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 }

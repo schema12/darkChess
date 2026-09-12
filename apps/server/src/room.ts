@@ -388,9 +388,21 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       case 'command':
         submitCommand(playerId, message.action);
         break;
-      case 'resign':
+      case 'resign': {
+        // 产品规则：只有当前行动玩家可以认输（非当前行动玩家权威拒绝）。
+        if (state?.status.kind !== 'inProgress' || state.currentPlayerId !== playerId) {
+          const seat0 = seats.get(playerId);
+          seat0?.connection?.send({
+            type: 'rejected',
+            code: 'notCurrentPlayer',
+            reason: '只有当前行动玩家可以认输',
+          });
+          if (debug) console.log(`[diag] resign dropped: player=${playerId} not current`);
+          break;
+        }
         forfeit(playerId, 'resign');
         break;
+      }
       case 'drawOffer':
         handleDrawOffer(playerId);
         break;
@@ -412,6 +424,17 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
 
   /** 求和提议：对局中、发起者为存活玩家、无待回应提议、次数未满（每人每局 3 次）。 */
   function handleDrawOffer(playerId: PlayerId): void {
+    // 产品规则：只有当前行动玩家可以发起求和（非当前行动玩家权威拒绝）。
+    if (state?.status.kind === 'inProgress' && state.currentPlayerId !== playerId) {
+      const seat = seats.get(playerId);
+      seat?.connection?.send({
+        type: 'rejected',
+        code: 'notCurrentPlayer',
+        reason: '只有当前行动玩家可以发起求和',
+      });
+      if (debug) console.log(`[diag] drawOffer dropped: not current player=${playerId}`);
+      return;
+    }
     const seat = seats.get(playerId);
     if (status !== 'playing' || !seat?.connected) {
       seat?.connection?.send({ type: 'rejected', code: 'drawRejected', reason: '当前不能发起求和' });

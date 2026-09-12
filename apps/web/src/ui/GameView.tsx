@@ -69,7 +69,7 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
         </div>
       ) : null}
       <BoardView game={game} />
-      {online && viewerActive && state.status.kind === 'inProgress' ? (
+      {online && viewerActive && ownTurn && state.status.kind === 'inProgress' ? (
         <div className="in-game-actions">
           <button type="button" className="secondary-btn" onClick={() => setConfirmResign(true)}>
             认输
@@ -119,11 +119,11 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
           </div>
         </div>
       ) : null}
-      {online?.pendingDrawFrom ? (
+      {game.pendingDrawFrom ? (
         <div className="overlay">
           <div className="result-card">
             <h2>求和</h2>
-            <p className="reason">玩家{online.pendingDrawFrom}请求和棋（计时不会暂停）</p>
+            <p className="reason">玩家{game.pendingDrawFrom}请求和棋（计时不会暂停）</p>
             <div className="result-actions">
               <button type="button" onClick={() => game.drawResponse?.(true)}>
                 同意

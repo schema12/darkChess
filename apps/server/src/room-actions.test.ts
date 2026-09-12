@@ -202,18 +202,61 @@ describe('v1.0.3：求和（draw offer）', () => {
     c.close();
   });
 
-  it('求和等待期回应者被淘汰 → 提议作废（accept=false 广播），对局继续', async () => {
-    await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 6, roomId: 'dr-cancel' });
-    const a = await join('dr-cancel', '2p');
-    const b = await join('dr-cancel', '2p');
-    await untilStarted(a, b);
+  it('3P：求和等待期回应者被淘汰 → 提议作废（accept=false 广播），对局继续', async () => {
+    const server = await startServer({ mode: mode3p, seatIds: ['A', 'B', 'C'], seed: 6, roomId: 'dr-cancel' });
+    const a = await join('dr-cancel', '3p');
+    const b = await join('dr-cancel', '3p');
+    const c = await join('dr-cancel', '3p');
+    await untilStarted(a, b, c);
 
+    // A（当前行动）发起求和 → 待回应 [B, C]
     a.drawOffer();
-    await until(() => b.drawOffers.length === 1, 2000);
-    b.resign(); // 回应者认输离场 → 提议作废
+    await until(() => b.drawOffers.length === 1 && c.drawOffers.length === 1, 2000);
+
+    // 直接权威淘汰回应者 B（A/C 仍存活 → 游戏继续）→ 待回应含 B → 提议作废
+    server.getRoom('dr-cancel', '3p')!.forfeit('B', 'timeout');
     await until(() => a.drawResponses.length === 1, 3000);
     expect(a.drawResponses[0]!.accept).toBe(false);
-    expect(a.getState()?.status.kind).toBe('won'); // B 认输 → A 胜（对局终局路径不受影响）
+
+    // 对局继续：A/C 存活，状态进行中
+    expect(a.getState()!.status.kind).toBe('inProgress');
+    a.close();
+    b.close();
+    c.close();
+  });
+});
+
+describe('v1.0.3.2：回合限制（认输/求和仅当前行动玩家）', () => {
+  it('B 非当前行动：drawOffer 与 resign 均被权威拒绝（notCurrentPlayer）', async () => {
+    await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 20, roomId: 'tr-1' });
+    const a = await join('tr-1', '2p');
+    const b = await join('tr-1', '2p');
+    await untilStarted(a, b); // A 当前行动
+
+    b.drawOffer();
+    await until(() => b.rejections.some((r) => r.code === 'notCurrentPlayer'), 2000);
+    b.resign();
+    await until(() => b.rejections.filter((r) => r.code === 'notCurrentPlayer').length === 2, 2000);
+
+    // 对局未受影响：A 仍可正常行动
+    a.submit(reveal({ x: 0, y: 0 }));
+    await until(() => a.getState()?.turnNumber === 1, 2000);
+    expect(a.getState()!.status.kind).toBe('inProgress');
+    a.close();
+    b.close();
+  });
+
+  it('A 当前行动：drawOffer 与 resign 均被允许', async () => {
+    await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 21, roomId: 'tr-2' });
+    const a = await join('tr-2', '2p');
+    const b = await join('tr-2', '2p');
+    await untilStarted(a, b); // A 当前行动
+
+    a.drawOffer();
+    await until(() => b.drawOffers.length === 1, 2000); // 提议广播给 B（接收链路）
+    b.drawResponse(true); // 非当前行动玩家可以响应
+    await until(() => a.getState()?.status.kind === 'drawn', 3000);
+    expect(a.getState()!.status).toEqual({ kind: 'drawn', reason: { kind: 'agreement' } });
     a.close();
     b.close();
   });
@@ -228,7 +271,8 @@ describe('v1.0.3：再来一局（rematch ready）', () => {
 
     a.submit(reveal({ x: 0, y: 0 })); // 先走一步，使旧局 turnNumber > 0
     await until(() => a.getState()?.turnNumber === 1, 2000);
-    a.resign();
+    // A 走棋后轮到 B；B 在自己的回合认输（当前行动 ✓）→ A 获胜
+    b.resign();
     await until(() => a.getState()?.status.kind === 'won', 3000);
     const finalTurn = a.getState()!.turnNumber;
     expect(finalTurn).toBeGreaterThan(0);

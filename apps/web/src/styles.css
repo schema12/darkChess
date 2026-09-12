@@ -973,8 +973,11 @@ body {
 
 .result-wrap .overlay {
   position: static;
+  inset: auto;
+  display: block;
   background: transparent;
   box-shadow: none;
+  padding: 0;
 }
 
 .result-mark.win {

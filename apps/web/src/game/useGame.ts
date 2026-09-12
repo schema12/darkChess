@@ -53,10 +53,6 @@ export interface OnlineInfo {
   config: RoomConfigInfo | null;
   /** 已点击“再来一局”的玩家（terminal 后准备阶段）。 */
   rematchReady: readonly string[];
-  /** 本玩家已消耗的求和次数（服务器权威）。 */
-  myDrawCount: number;
-  /** 待本人回应的求和提议发起者（null = 无）。 */
-  pendingDrawFrom: string | null;
   lastError: string | null;
 }
 
@@ -333,8 +329,6 @@ export function useOnlineGame(
     roomPlayers: [],
     config: null,
     rematchReady: [],
-    myDrawCount: 0,
-    pendingDrawFrom: null,
     lastError: null,
   });
   const sessionRef = useRef<WebSocketGameSession | null>(null);
@@ -434,8 +428,6 @@ export function useOnlineGame(
               roomPlayers: [],
               config: null,
               rematchReady: [],
-              myDrawCount: 0,
-              pendingDrawFrom: null,
               lastError: null,
             },
       );
@@ -458,8 +450,6 @@ export function useOnlineGame(
       roomPlayers: [],
       config: null,
       rematchReady: [],
-      myDrawCount: 0,
-      pendingDrawFrom: null,
       lastError: null,
     });
 
@@ -485,9 +475,10 @@ export function useOnlineGame(
         stateRef.current = next;
         setState(next);
         if (next.turnNumber === 0) {
-          // 新对局（含再来一局）：重置本机求和计数与待回应提议。
+          // 新对局（含再来一局）：重置本机求和计数、待回应提议与上一局 transient 横幅。
           setMyDrawCount(0);
           setPendingDrawFrom(null);
+          setNotices([]);
         }
         if (next.status.kind !== 'inProgress') {
           // 对局已终局：重连凭证使命完成，立即清除，避免污染之后的新游戏流程。

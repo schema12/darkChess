@@ -637,3 +637,53 @@ Browser-level / Physical LAN：PENDING MANUAL（重点：认输确认、求和�
 core 86/86 · server **72/72**（+2 入口链路回归）· web typecheck/build ✅ · 零进程残留。
 LAN 人工验收：**PENDING**（按任务清单 1-12 项执行；如再遇延迟/无反应，
 DEV 控制台 `[diag]` 与服务器 `DARKCHESS_DEBUG=1` 输出可直接定位环节）。
+
+---
+
+# v1.0.3.2：第二轮 LAN 实测修复（Draw 接收 / 回合限制 / 确认框 / Banner / 居中）
+
+## 1. Draw：B 收不到求和弹窗（根因精确到行）
+
+控制台日志已证明 A 的第一次 drawOffer 成功建立 pendingDraw，断点必在接收端。审计定位：
+`onDrawOffer` 更新的是**控制器状态** `setPendingDrawFrom('A')`（正确），
+但 GameView 的求和弹窗读取的是 **`online?.pendingDrawFrom`（OnlineInfo 对象字段）**——
+该字段初始化后从未被更新（恒为 null），是 v1.0.3 引入的**双来源死字段**。
+**修复**：弹窗改读控制器活字段 `game.pendingDrawFrom`；删除 OnlineInfo 上误导性的
+`myDrawCount/pendingDrawFrom` 死字段（消除双来源陷阱）。B 收到弹窗 → 同意/拒绝 →
+drawResponse → 服务器权威和棋/继续（响应不受当前回合限制——产品规则表）。
+
+## 2. Turn restriction（产品规则最终确定，服务器权威）
+
+- **resign**：仅当前行动玩家；非当前行动 → 权威拒绝（notCurrentPlayer，“只有当前行动玩家可以认输”）。
+- **drawOffer**：仅当前行动玩家；非当前行动 → 权威拒绝（“只有当前行动玩家可以发起求和”）。
+- **drawResponse**：任何待回应的存活玩家均可（与当前行动无关）。
+- Web：认输/求和按钮仅在本人为当前行动玩家时渲染。
+- 回归测试：B 非当前行动发起均被拒、A 正常行动不受影响、A 提议 B（非当前）响应成功。
+
+## 3. Confirm Overlay 生命周期
+
+根因：确认点击后未将 `confirmResign` 置 false，且该 transient 状态跨局存活
+（GameContent 不因 rematch 重挂载）。修复：点击确认立即关闭并发送 resign；
+收到 terminal / 新 GameState（turnNumber 0）时强制清除。确认框与结果 Overlay 不再叠加。
+
+## 4. Banner 跨局残留
+
+根因：`notices`（局内横幅）只增不清，rematch 新 GameState 到达时未清空。
+修复：`onState` 中 `turnNumber === 0`（新对局标志）→ `setNotices([])`。
+新局后的事件才显示新横幅。
+
+## 5. Result UI 居中修正
+
+去掉 result-wrap 内嵌套的 `.overlay` div（其 flex 居中与外层冲突导致卡片偏左），
+result-card 成为 result-wrap 直接子元素逐项水平居中：result-card（结果大字+胜者）
+→ 按钮行 → Ready 列表，纵向排列、卡片位于页面中央。字体/按钮/Ready 样式未动。
+
+## 6. Rematch 对方离开
+
+Ready 列表按 roomPlayers.connected 显示：离线座位 → “玩家B已离线，等待重新加入”，
+不再显示与实际不符的“等待准备”。离线玩家回归后可正常准备。
+
+## 结果
+
+core 86/86 · server **74/74**（+2 回合限制）· web typecheck/build ✅ · 零进程残留。
+Browser-level / Physical LAN：PENDING MANUAL。
