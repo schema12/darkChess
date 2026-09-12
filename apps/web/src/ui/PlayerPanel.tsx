@@ -14,6 +14,7 @@ export function PlayerPanel({ game }: { game: ReadyGameController }) {
   const { state, mode, online, turnRemainingSec, turnPolicySec } = game;
   const isTimed = turnPolicySec !== null; // 联机计时房（本地/不限时无计时器）
   const viewerId = online?.playerId ?? null;
+  const hostId = online?.roomPlayers.find((p) => p.isHost)?.playerId ?? null;
 
   return (
     <div className={`player-panel players-${state.players.length}`}>
@@ -46,6 +47,7 @@ export function PlayerPanel({ game }: { game: ReadyGameController }) {
               <span className="pcard-name">
                 玩家{p.id}
                 {isViewer ? '（你）' : ''}
+                {p.id === hostId ? <span className="pcard-host">房主</span> : null}
               </span>
               <span className="pcard-faction">{faction}</span>
               <span className="pcard-status">{status}</span>

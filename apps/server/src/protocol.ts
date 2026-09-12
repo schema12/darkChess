@@ -23,11 +23,13 @@ export type ServerMessage =
       readonly playerId: PlayerId;
       readonly token: string;
       readonly status: RoomStatus;
+      readonly config: RoomConfigInfo;
     }
   | {
       readonly type: 'roomStatus';
       readonly status: RoomStatus;
       readonly players: readonly RoomPlayerInfo[];
+      readonly config: RoomConfigInfo;
     }
   | {
       readonly type: 'state';
@@ -38,10 +40,19 @@ export type ServerMessage =
   | { readonly type: 'eliminated'; readonly playerId: PlayerId; readonly reason: EliminationReason }
   | { readonly type: 'rejected'; readonly code: string; readonly reason: string };
 
+/** 房间配置（由房主创建时决定，服务器权威；加入者只读）。 */
+export interface RoomConfigInfo {
+  readonly modeId: string;
+  /** 回合计时秒数；null = 不限时。 */
+  readonly timerSec: number | null;
+}
+
 /** 房间内单个座位的公开信息（不含任何隐藏棋子信息）。 */
 export interface RoomPlayerInfo {
   readonly playerId: PlayerId;
   readonly connected: boolean;
   readonly factionId: string | null;
   readonly eliminated: boolean;
+  /** 房主 = 创建房间（首个入座）的玩家；模式/计时等配置由其决定。 */
+  readonly isHost: boolean;
 }

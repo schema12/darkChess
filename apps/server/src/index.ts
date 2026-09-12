@@ -25,6 +25,8 @@ export interface DarkChessServerOptions {
   readonly roomId?: string;
   readonly seed?: number;
   readonly turnTimeoutMs?: number;
+  /** 对局中全员离线后的空闲保留时长（毫秒），超时回收房间；默认 10 分钟。 */
+  readonly idleTtlMs?: number;
 }
 
 export interface RunningServer {
@@ -65,6 +67,33 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
   );
 
   const rooms = new Map<string, GameRoom>();
+  /** 对局中全员离线的 TTL 定时器（房间键 -> timer），到期仍无人在线则回收房间。 */
+  const idleTtls = new Map<string, ReturnType<typeof setTimeout>>();
+  const idleTtlMs = options.idleTtlMs ?? 10 * 60 * 1000;
+
+  function destroyRoom(key: string): void {
+    const ttl = idleTtls.get(key);
+    if (ttl !== undefined) {
+      clearTimeout(ttl);
+      idleTtls.delete(key);
+    }
+    const room = rooms.get(key);
+    if (room) room.close();
+    rooms.delete(key);
+  }
+
+  function armIdleTtl(key: string, room: GameRoom): void {
+    if (idleTtls.has(key)) return; // 已在回收倒计时中
+    const ttl = setTimeout(() => {
+      idleTtls.delete(key);
+      if (rooms.get(key) === room && room.onlineCount() === 0) {
+        room.close();
+        rooms.delete(key);
+      }
+    }, idleTtlMs);
+    ttl.unref();
+    idleTtls.set(key, ttl);
+  }
 
   // 房间内部键含模式前缀（按请求的 modeKey 原样存储，未注册的 key 回退默认配置）：
   // 保证 join 与 reconnect 用同一把键，2P/3P 房间互不干扰。
@@ -74,12 +103,21 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
     const key = `${modeKey ?? '__default__'}:${roomId}`;
     const existing = rooms.get(key);
     if (existing) return existing;
+    const ttl = idleTtls.get(key);
+    if (ttl !== undefined) {
+      clearTimeout(ttl);
+      idleTtls.delete(key);
+    }
     const room = createGameRoom({
       roomId,
       mode: cfg.mode,
       seatIds: cfg.seatIds,
       seed: options.seed,
       turnTimeoutMs: timerMs ?? options.turnTimeoutMs,
+      onEmpty: (id) => {
+        // 等待阶段零在线：销毁空闲等待房（防止离线座位占位导致“自己和自己联机”）。
+        destroyRoom(`${modeKey ?? '__default__'}:${id}`);
+      },
     });
     rooms.set(key, room);
     return room;
@@ -137,7 +175,12 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
       room.handleClientMessage(playerId, parsed);
     });
     ws.on('close', () => {
-      if (playerId !== null) room.disconnect(handle);
+      if (playerId === null) return;
+      room.disconnect(handle);
+      // 对局中全员离线：暂停计时（房间内部处理）并启动空闲 TTL 回收倒计时。
+      if (room.onlineCount() === 0 && room.getStatus() === 'playing') {
+        armIdleTtl(`${modeKey ?? '__default__'}:${roomId}`, room);
+      }
     });
 
     if (token !== null) {
@@ -197,6 +240,8 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
         },
         close: () =>
           new Promise((done) => {
+            for (const ttl of idleTtls.values()) clearTimeout(ttl);
+            idleTtls.clear();
             for (const room of rooms.values()) room.close();
             // terminate：立即断开全部客户端连接，避免 close 握手悬挂。
             // （ws 8.x 中 clients 是 Set 属性，不是方法。）

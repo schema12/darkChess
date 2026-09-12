@@ -454,3 +454,63 @@ leave → rejoin → CONNECTED → 继续
 terminal → 返回 → 重进同名房间 → 全新对局（旧局不复活）
 2P → leave → 3P → 真正进入 3P
 ```
+
+---
+
+# v1.0.2：联机产品与 UI 回归审计 + 修复（Stage 0–12）
+
+> 原则：UI/UX/房间生命周期/玩家身份模型属于产品规格。自动化测试通过 ≠ 产品设计正确。
+
+## Stage 1 UI 审计 —— 发现 P0 级 UI 回归（用户报告属实）
+
+对照 v1.0.0（3111405）审计 styles.css：**49 组选择器丢失**（848 行 → 280 行）。v1.0.1 的 CSS
+切片修补以 `.spectate-badge` 为边界切片时，该标记在文件中位于玩家面板标记**之前**，
+导致中间整段样式被删除——包括：`.bottom-nav/.nav-item`（底部导航退化为顶部普通文字行）、
+`.overlay/.result-card`（结算弹窗失去样式，退化为页面内普通文字）、`.lobby-card`（等待/断线
+卡片）、`.game-header/.game-status`、`.toast`、首页/联机/设置页全部样式（`.page/.entry-*/.
+settings-*/.seat-list/.primary-btn` 等）。组件代码（BottomNav/GameResultOverlay）从未被删——
+**是样式被删导致组件渲染成无样式文本**，与用户描述逐字吻合。
+
+**修复（Stage 7 前置）**：以 v1.0.0 样式表为基底重建（848 → 911 行），仅叠加有意的三层变更：
+①旧 `.player-panel/.player-card` 块 → 新 `.pcard` 体系；②移除 `.gs-timer`（倒计时已绑定玩家卡）；
+③保留 `.field select`（计时下拉）。重建后选择器完整性校验：**零意外丢失**。
+审计结论：底部导航（壳页固定底部）与结算 Overlay 的**组件代码从未被删除**，无需恢复逻辑。
+
+## Stage 2–3 Room 模型 / Host
+
+- `RoomConfigInfo { modeId, timerSec }` 随 welcome/roomStatus 广播——**配置权威链**：
+  Host 创建 → Server Room.config → 广播 → Joiner 只读展示。
+- Host = 首个入座玩家（`seatIds[0]`）；`RoomPlayerInfo.isHost` 广播；PlayerCard 显示“房主”徽章。
+- RoomPage：加入已有房间后显示只读房间配置（“房间配置（房主决定）：三人 · 每回合 60 秒”）；
+  计时选择标注“创建房间时生效；加入已有房间以房主设置为准”。
+
+## Stage 4 Timer 权威
+
+- 根因澄清：“不限时→30/60→30”不是服务端钳制，而是**加入者表单选择被展示得像可配置**，
+  实际房间以创建者策略为准（先到先建）。修复为可见性/语义问题（config 广播 + 只读展示 +
+  表单标注），服务端行为本就正确（加入者的 ?timer= 对已有房间无效）。
+- 矩阵测试：30/60/90/120 创建 → 广播剩余与策略一致；加入者声明不同计时被忽略；
+  不限时 → 全部 null。
+
+## Stage 5 Duplicate Player（自己和自己联机）
+
+- 根因：等待房全员离线后房间仍占座 → 离开者无 token 重入被分配第二个座位。
+- 修复：**等待阶段零在线 → 房间自毁**（onEmpty 回调 → 桥接销毁）；重入即全新单一座位。
+- 对局中无 token 重入 → roomClosed 拒绝（座位被占，绝不 A+A）。
+
+## Stage 6 Idle Room / TTL
+
+- 对局中全员离线 → **计时暂停**（冻结剩余，取消 setTimeout）；任一玩家回归 → 以冻结值继续。
+- 空闲 TTL：桥接启动回收倒计时（默认 10 分钟，可配置 `idleTtlMs`），到期仍零在线 → 房间销毁；
+  任何人回归即取消 TTL。TTL 定时器在服务器 close 时全部清理。
+
+## Stage 10 测试矩阵（新增 room-config.test.ts 11 个）
+
+计时矩阵 30/60/90/120/unlimited（含加入者声明被忽略）· Host 配置不变 + isHost 广播 ·
+roomStatus 携带配置 · 等待房自毁防自自 · 对局中无 token 重入拒绝 · 全员离线计时冻结 ·
+TTL 回收 · 对局房不误伤。
+
+## Stage 11–12
+
+浏览器级测试：PENDING（同 v1.0.1 结论，建议 v2 引入）。物理 LAN 验收：PENDING MANUAL。
+全量回归：core 86/86 · server **58/58**（+11）· web typecheck/build ✅ · 零进程残留。

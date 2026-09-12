@@ -10,7 +10,7 @@ import {
   connectWebSocketGameSession,
 } from '@darkchess/server/client';
 import type { WebSocketGameSession } from '@darkchess/server/client';
-import type { RoomPlayerInfo } from '@darkchess/server/protocol';
+import type { RoomConfigInfo, RoomPlayerInfo } from '@darkchess/server/protocol';
 import type { ConnectionStatus } from '@darkchess/server/client';
 import type {
   GameAction,
@@ -49,6 +49,8 @@ export interface OnlineInfo {
   roomId: string;
   token: string;
   roomPlayers: readonly RoomPlayerInfo[];
+  /** 房间配置（房主创建时决定，服务器权威；加入者只读）。 */
+  config: RoomConfigInfo | null;
   lastError: string | null;
 }
 
@@ -302,6 +304,7 @@ export function useOnlineGame(
     roomId: connection.roomId,
     token: connection.token ?? '',
     roomPlayers: [],
+    config: null,
     lastError: null,
   });
   const sessionRef = useRef<WebSocketGameSession | null>(null);
@@ -358,6 +361,7 @@ export function useOnlineGame(
               roomId: connection.roomId,
               token: '',
               roomPlayers: [],
+              config: null,
               lastError: null,
             },
       );
@@ -378,6 +382,7 @@ export function useOnlineGame(
       roomId: connection.roomId,
       token: tokenRef.current ?? '',
       roomPlayers: [],
+      config: null,
       lastError: null,
     });
 
@@ -431,12 +436,13 @@ export function useOnlineGame(
         if (disposed) return;
         setOnline((info) => ({ ...info, status }));
       },
-      onRoomStatus: (status, players) => {
+      onRoomStatus: (status, players, config) => {
         if (disposed) return;
         setOnline((info) => ({
           ...info,
           status: status === 'waiting' ? 'waiting' : status === 'playing' ? 'playing' : info.status,
           roomPlayers: players,
+          config: config ?? info.config,
         }));
       },
       onRejected: (rejection) => {

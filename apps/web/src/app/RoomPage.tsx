@@ -51,7 +51,7 @@ export function RoomPage({
             <input value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="room-1" />
           </label>
           <label className="field">
-            <span>回合计时（好友房可选）</span>
+            <span>回合计时（创建房间时生效；加入已有房间以房主设置为准）</span>
             <select
               value={timerSec === undefined ? 'off' : String(timerSec)}
               onChange={(e) => setTimerSec(e.target.value === 'off' ? undefined : Number(e.target.value))}
@@ -83,6 +83,13 @@ export function RoomPage({
           <p className="page-hint">
             服务器 <b>{url}</b> · 房间 <b>{online?.roomId || roomId}</b>
           </p>
+          {online?.config ? (
+            <p className="page-hint ok">
+              房间配置（房主决定）：
+              {online.config.modeId === 'dark-chess-3p-4x8' ? '三人' : '两人'} ·{' '}
+              {online.config.timerSec !== null ? `每回合 ${online.config.timerSec} 秒` : '不限时'}
+            </p>
+          ) : null}
           {online?.lastError ? (
             <p className="page-hint error">{friendlyConnectError(online.lastError)}</p>
           ) : null}

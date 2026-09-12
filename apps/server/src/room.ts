@@ -10,6 +10,7 @@ import type {
 import type {
   ClientMessage,
   EliminationReason,
+  RoomConfigInfo,
   RoomPlayerInfo,
   RoomStatus,
   ServerMessage,
@@ -43,6 +44,8 @@ export interface GameRoomConfig {
   readonly seed?: number;
   /** 回合计时毫秒；缺省不启用超时（阶段 5 使用）。 */
   readonly turnTimeoutMs?: number;
+  /** 等待阶段零在线时回调（桥接据此销毁空闲等待房，防止“自己和自己联机”）。 */
+  readonly onEmpty?: (roomId: string) => void;
 }
 
 export interface JoinResult {
@@ -71,6 +74,10 @@ export interface GameRoom {
   getStatus(): RoomStatus;
   /** 回合计时策略（毫秒；undefined = 不限时）。属于房间生命周期，替换/重开时继承。 */
   timerPolicyMs(): number | undefined;
+  /** 房间配置（模式/计时），随 welcome/roomStatus 广播给客户端。 */
+  configInfo(): RoomConfigInfo;
+  /** 在线座位数（空闲/TTL 判定用）。 */
+  onlineCount(): number;
   playersInfo(): readonly RoomPlayerInfo[];
 }
 
@@ -83,6 +90,9 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
   let timerGeneration = 0;
   /** 当前回合截止时刻（ms 时间戳）；null = 不限时/非对局阶段。 */
   let turnDeadline: number | null = null;
+  /** 全员离线的空闲暂停：计时冻结，重连后以剩余值继续。 */
+  let idlePaused = false;
+  let pausedRemainingMs: number | null = null;
 
   function seatInfo(seat: Seat): RoomPlayerInfo {
     const player = state?.players.find((pl) => pl.id === seat.playerId);
@@ -91,7 +101,21 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       connected: seat.connected,
       factionId: player?.factionId ?? null,
       eliminated: player?.eliminated === true,
+      isHost: seat.playerId === config.seatIds[0],
     };
+  }
+
+  /** 房间配置（房主创建时决定，加入者只读）。 */
+  function configInfo(): RoomConfigInfo {
+    return {
+      modeId: config.mode.id,
+      timerSec: config.turnTimeoutMs !== undefined ? Math.round(config.turnTimeoutMs / 1000) : null,
+    };
+  }
+
+  /** 在线（已连接）座位数。 */
+  function onlineCount(): number {
+    return [...seats.values()].filter((s) => s.connected).length;
   }
 
   function sendTo(seat: Seat, message: ServerMessage): void {
@@ -103,7 +127,12 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
   }
 
   function broadcastRoomStatus(): void {
-    broadcast({ type: 'roomStatus', status, players: [...seats.values()].map(seatInfo) });
+    broadcast({
+      type: 'roomStatus',
+      status,
+      players: [...seats.values()].map(seatInfo),
+      config: configInfo(),
+    });
   }
 
   function disarmTimer(): void {
@@ -117,6 +146,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
 
   /** 当前回合剩余秒数（向上取整）；不限时返回 null。广播时间点取样，权威判定仍在服务端。 */
   function remainingSec(): number | null {
+    if (idlePaused) return pausedRemainingMs !== null ? Math.ceil(pausedRemainingMs / 1000) : null;
     if (turnDeadline === null) return null;
     return Math.max(0, Math.ceil((turnDeadline - Date.now()) / 1000));
   }
@@ -128,6 +158,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
 
   function armTimer(): void {
     disarmTimer();
+    if (idlePaused) return; // 空闲暂停期间不启动计时
     if (config.turnTimeoutMs === undefined || status !== 'playing') return;
     if (!state || state.status.kind !== 'inProgress') return;
     turnDeadline = Date.now() + config.turnTimeoutMs;
@@ -204,12 +235,14 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       connection,
     };
     seats.set(seatId, seat);
+    resumeFromIdle(); // 有人入座：结束空闲暂停
     connection.send({
       type: 'welcome',
       roomId: config.roomId,
       playerId: seatId,
       token: seat.token,
       status,
+      config: configInfo(),
     });
     broadcastRoomStatus();
     if (seats.size === config.seatIds.length) start();
@@ -232,12 +265,14 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     // 恢复原座位：playerId / 阵营 / 棋局 / 淘汰状态全部保持，仅恢复连接。
     seat.connection = connection;
     seat.connected = true;
+    resumeFromIdle(); // 有人回归：结束空闲暂停（计时以暂停时剩余值继续）
     connection.send({
       type: 'welcome',
       roomId: config.roomId,
       playerId: seat.playerId,
       token,
       status,
+      config: configInfo(),
     });
     if (state) connection.send(stateMessage(state));
     broadcastRoomStatus();
@@ -250,6 +285,47 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     seat.connected = false;
     seat.connection = null;
     broadcastRoomStatus();
+
+    // 空房间生命周期：全部离线时——等待房自毁（防“自己和自己联机” seat 占位）；
+    // 对局房暂停计时并标记 idle（保留状态供重连，TTL 回收由桥接执行）。
+    if (onlineCount() === 0) {
+      if (status === 'waiting') {
+        config.onEmpty?.(config.roomId);
+        return;
+      }
+      if (status === 'playing') pauseForIdle();
+    }
+  }
+
+  /** 对局中全员离线：取消本回合 setTimeout，冻结剩余时间。 */
+  function pauseForIdle(): void {
+    if (idlePaused || turnDeadline === null) return;
+    pausedRemainingMs = Math.max(0, turnDeadline - Date.now());
+    timerGeneration += 1;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    turnDeadline = null;
+    idlePaused = true;
+  }
+
+  /** 有人回归：以冻结的剩余时间继续计时。 */
+  function resumeFromIdle(): void {
+    if (!idlePaused) return;
+    idlePaused = false;
+    const remaining = pausedRemainingMs;
+    pausedRemainingMs = null;
+    if (remaining !== null && status === 'playing' && state?.status.kind === 'inProgress') {
+      turnDeadline = Date.now() + remaining;
+      const generation = timerGeneration;
+      timer = setTimeout(() => {
+        if (generation !== timerGeneration) return;
+        const current = state?.currentPlayerId;
+        if (current !== undefined) forfeit(current, 'timeout');
+      }, remaining);
+      timer.unref();
+    }
   }
 
   function submitCommand(playerId: PlayerId, action: GameAction): void {
@@ -293,10 +369,16 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     disconnect,
     handleClientMessage,
     forfeit,
-    close: disarmTimer,
+    close: () => {
+      disarmTimer();
+      idlePaused = false;
+      pausedRemainingMs = null;
+    },
     getState: () => state,
     getStatus: () => status,
     timerPolicyMs: () => config.turnTimeoutMs,
+    configInfo,
+    onlineCount,
     playersInfo: () => [...seats.values()].map(seatInfo),
   };
 }

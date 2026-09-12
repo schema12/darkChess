@@ -7,6 +7,7 @@ import type {
 import type {
   ClientMessage,
   EliminationReason,
+  RoomConfigInfo,
   RoomPlayerInfo,
   RoomStatus,
   ServerMessage,
@@ -40,8 +41,12 @@ export interface WebSocketSessionEvents {
   onRejected?(rejection: { code: string; reason: string }): void;
   /** 服务器权威淘汰（原因由服务器声明：timeout / noLegalAction / resign）。 */
   onEliminated?(event: { playerId: PlayerId; reason: EliminationReason }): void;
-  /** 房间公开状态（座位连接情况 / 阵营 / 淘汰——均为公共信息）。 */
-  onRoomStatus?(status: RoomStatus, players: readonly RoomPlayerInfo[]): void;
+  /** 房间公开状态（座位连接情况 / 阵营 / 淘汰 / 房间配置——均为公共信息）。 */
+  onRoomStatus?(
+    status: RoomStatus,
+    players: readonly RoomPlayerInfo[],
+    config: RoomConfigInfo,
+  ): void;
 }
 
 export interface WebSocketSessionOptions extends WebSocketSessionEvents {
@@ -255,7 +260,7 @@ export function connectWebSocketGameSession(
           onEliminated?.({ playerId: message.playerId, reason: message.reason });
           break;
         case 'roomStatus':
-          onRoomStatus?.(message.status, message.players);
+          onRoomStatus?.(message.status, message.players, message.config);
           break;
       }
     };
