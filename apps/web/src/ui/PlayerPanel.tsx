@@ -25,6 +25,10 @@ export function PlayerPanel({ game }: { game: ReadyGameController }) {
           ? mode.factions.find((f) => f.id === p.factionId)?.displayName ?? p.factionId
           : '阵营待定';
         const out = p.eliminated === true;
+        // 断线：联机房间内该座位离线（计时继续——服务器不因断线暂停回合）。
+        const disconnected =
+          online !== null &&
+          online.roomPlayers.find((rp) => rp.playerId === p.id)?.connected === false;
         // 倒计时绑定玩家：当前行动者显示实时剩余，其余玩家显示满额（时钟未走）。
         const timerSec = isCurrent ? turnRemainingSec : turnPolicySec;
         // 危险脉动仅属于真实倒计时（1-10s）；本地归零后、权威结算到达前的 00:00
@@ -32,11 +36,13 @@ export function PlayerPanel({ game }: { game: ReadyGameController }) {
         const danger = isCurrent && timerSec !== null && timerSec <= 10 && timerSec > 0;
         const status = out
           ? '已淘汰'
-          : isCurrent
-            ? isViewer
-              ? '你的回合'
-              : '行动中'
-            : '等待中';
+          : disconnected
+            ? '断线'
+            : isCurrent
+              ? isViewer
+                ? '你的回合'
+                : '行动中'
+              : '等待中';
 
         const cls = ['pcard', isCurrent ? 'current' : '', out ? 'out' : '', danger ? 'danger' : '']
           .filter(Boolean)

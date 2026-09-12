@@ -13,7 +13,10 @@ export type EliminationReason = 'timeout' | 'noLegalAction' | 'resign';
  */
 export type ClientMessage =
   | { readonly type: 'command'; readonly action: GameAction }
-  | { readonly type: 'resign' };
+  | { readonly type: 'resign' }
+  | { readonly type: 'drawOffer' }
+  | { readonly type: 'drawResponse'; readonly accept: boolean }
+  | { readonly type: 'rematchReady' };
 
 /** 服务端 -> 客户端。 */
 export type ServerMessage =
@@ -30,6 +33,20 @@ export type ServerMessage =
       readonly status: RoomStatus;
       readonly players: readonly RoomPlayerInfo[];
       readonly config: RoomConfigInfo;
+      /** 已点击“再来一局”的玩家（terminal 后的重新开局准备）。 */
+      readonly rematchReady: readonly PlayerId[];
+    }
+  | {
+      readonly type: 'drawOffer';
+      readonly fromPlayerId: PlayerId;
+      /** 发起者已消耗的求和次数（含本次）。 */
+      readonly count: number;
+      readonly max: number;
+    }
+  | {
+      readonly type: 'drawResponse';
+      readonly fromPlayerId: PlayerId;
+      readonly accept: boolean;
     }
   | {
       readonly type: 'state';

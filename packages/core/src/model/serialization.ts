@@ -176,6 +176,8 @@ export function validateGameState(value: unknown): asserts value is GameState {
       if (!isPositiveInt(reason.threshold)) fail('status.reason.threshold 必须是正整数');
     } else if (reason.kind === 'repetition') {
       if (!isPositiveInt(reason.count)) fail('status.reason.count 必须是正整数');
+    } else if (reason.kind === 'agreement') {
+      // 全体存活玩家同意和棋：无附加负载
     } else {
       fail(`未知和棋原因: ${String(reason.kind)}`);
     }

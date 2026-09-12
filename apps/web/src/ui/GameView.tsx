@@ -16,8 +16,10 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
   const state = game.state;
   // 淘汰玩家的“继续观战”选择：仅本地 UI 态（会话/身份/淘汰状态不变）。
   const [spectating, setSpectating] = useState(false);
+  const [confirmResign, setConfirmResign] = useState(false);
   const me = online ? (state.players.find((p) => p.id === online.playerId) ?? null) : null;
   const iAmOut = me?.eliminated === true;
+  const viewerActive = online !== null && me !== null && me.eliminated !== true;
   const ownTurn =
     !online || online.playerId === '' || online.playerId === state.currentPlayerId;
 
@@ -45,22 +47,43 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
   return (
     <>
       <PlayerPanel game={game} />
-      <EliminationNotices notices={game.eliminationNotices} />
+      <EliminationNotices
+        notices={game.eliminationNotices}
+        gameOver={state.status.kind !== 'inProgress'}
+      />
       <Toast message={game.toast} />
       {iAmOut && !spectating ? (
-        <div className="eliminated-card">
-          <span className="ec-title">你已被淘汰</span>
-          <div className="ec-actions">
-            <button type="button" onClick={() => setSpectating(true)}>
-              继续观战
-            </button>
-            <button type="button" className="secondary" onClick={onExit}>
-              退出房间
-            </button>
+        <div className="overlay">
+          <div className="result-card">
+            <h2>负</h2>
+            <p className="reason">你已被淘汰</p>
+            <div className="result-actions">
+              <button type="button" onClick={() => setSpectating(true)}>
+                观战
+              </button>
+              <button type="button" className="secondary" onClick={onExit}>
+                退出房间
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
       <BoardView game={game} />
+      {online && viewerActive && state.status.kind === 'inProgress' ? (
+        <div className="in-game-actions">
+          <button type="button" className="secondary-btn" onClick={() => setConfirmResign(true)}>
+            认输
+          </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            disabled={game.myDrawCount >= 3 || game.pendingDrawFrom !== null}
+            onClick={game.drawOffer ?? undefined}
+          >
+            求和{game.myDrawCount > 0 ? `（${game.myDrawCount}/3）` : ''}
+          </button>
+        </div>
+      ) : null}
       <section className="game-status">
         <div className="gs-row">
           <span className="gs-turn">
@@ -80,6 +103,38 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
       ) : (
         <p className="hint">点击背面棋子翻棋；点击己方棋子选中，再点击高亮目标移动/吃子。</p>
       )}
+      {confirmResign ? (
+        <div className="overlay">
+          <div className="result-card">
+            <h2>认输</h2>
+            <p className="reason">确定要认输吗？认输后你将被判负淘汰。</p>
+            <div className="result-actions">
+              <button type="button" onClick={game.resign ?? undefined}>
+                认输
+              </button>
+              <button type="button" className="secondary" onClick={() => setConfirmResign(false)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {online?.pendingDrawFrom ? (
+        <div className="overlay">
+          <div className="result-card">
+            <h2>求和</h2>
+            <p className="reason">玩家{online.pendingDrawFrom}请求和棋（计时不会暂停）</p>
+            <div className="result-actions">
+              <button type="button" onClick={() => game.drawResponse?.(true)}>
+                同意
+              </button>
+              <button type="button" className="secondary" onClick={() => game.drawResponse?.(false)}>
+                拒绝
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <GameResultOverlay
         game={game}
         onExit={onExit}

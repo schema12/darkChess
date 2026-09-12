@@ -6,17 +6,6 @@ function factionName(game: GameController, id: FactionId | null): string {
   return game.mode.factions.find((f) => f.id === id)?.displayName ?? id;
 }
 
-/**
- * 胜负原因从权威状态派生，不假设玩家数量：
- * 胜者即棋盘上唯一存留阵营，其余阵营棋子已全部离场（被吃光或随淘汰退出）。
- */
-function winReason(game: ReadyGameController, winner: FactionId): string {
-  const loserPieces = game.state.board.cells.filter(
-    (c) => c.piece !== null && game.mode.factionOf(c.piece) !== winner,
-  ).length;
-  return loserPieces === 0 ? '其余阵营棋子已全部被消灭' : '其余阵营已无棋可走';
-}
-
 /** 获胜者描述：优先玩家（含阵营），否则阵营。 */
 /** 淘汰通知 → 人话短语（用于胜利文案描述对手的结束原因）。 */
 function eliminationPhrase(playerId: string, reason: 'noLegalAction' | 'timeout' | 'resign'): string {
@@ -61,61 +50,45 @@ export function GameResultOverlay({
       : state.status.winner !== null && viewer.factionId === state.status.winner);
   const viewerOut = viewer?.eliminated === true;
 
-  let title: string;
-  let reason: string;
-  if (state.status.kind === 'won') {
-    if (viewer !== null) {
-      if (viewerWon) {
-        title = '胜利';
-        // 以真实结束原因描述胜利：取最后一条对手淘汰通知（timeout/退出/无合法行动）。
-        const finalElim = [...game.eliminationNotices]
-          .reverse()
-          .find((n) => n.playerId !== viewer.id);
-        if (finalElim) {
-          reason = `${eliminationPhrase(finalElim.playerId, finalElim.reason)}，你获胜`;
-          if (state.players.length > 2) reason += '（你是最后存活的玩家）';
-        } else if (state.status.winner !== null) {
-          reason = `获胜阵营：${factionName(game, state.status.winner)}`;
-        } else {
-          reason = '你是最后一名未淘汰玩家';
-        }
-      } else if (viewerOut) {
-        // 已淘汰玩家：不显示为普通“失败”。
-        title = '已淘汰';
-        reason = `本局获胜者：${winnerLabel(game, state.status)}`;
-      } else {
-        title = '失败';
-        reason = `获胜者：${winnerLabel(game, state.status)}`;
-      }
-    } else if (state.status.winnerPlayerId !== undefined) {
-      // 玩家判据胜负（多人玩法：仅剩一名未淘汰玩家）。
-      const faction = state.status.winner !== null ? factionName(game, state.status.winner) : null;
-      title = `玩家${state.status.winnerPlayerId}获胜${faction ? `（${faction}）` : ''}`;
-      reason = '其余玩家均已判负淘汰';
-    } else if (state.status.winner !== null) {
-      // 阵营判据胜负（棋盘上只剩该阵营的棋子）。
-      title = `${factionName(game, state.status.winner)}获胜`;
-      reason = winReason(game, state.status.winner);
-    } else {
-      title = '对局结束';
-      reason = '';
-    }
+  // 最终胜负 Overlay 只有大字：胜 / 负 / 和（原因属于局内事件提示，见淘汰横幅）。
+  let title: '胜' | '负' | '和';
+  if (state.status.kind === 'drawn') {
+    title = '和';
+  } else if (viewer === null) {
+    title = '胜'; // 本地热座：设备持有者即刚获胜的一方
+  } else if (viewerWon) {
+    title = '胜';
   } else {
-    title = '和棋';
-    reason =
-      state.status.reason.kind === 'noCapture'
-        ? `连续 ${state.status.reason.threshold} 步未发生吃子`
-        : `重复局面达到 ${state.status.reason.count} 次`;
+    title = '负';
+  }
+  // 胜者身份一行（非原因说明；原因已在局内横幅展示过）。
+  let winnerLine = '';
+  if (state.status.kind === 'won') {
+    if (state.status.winnerPlayerId !== undefined) {
+      const f = state.status.winner;
+      winnerLine = `胜者：玩家${state.status.winnerPlayerId}${f !== null ? `（${factionName(game, f)}）` : ''}`;
+    } else if (state.status.winner !== null) {
+      winnerLine = `胜者：${factionName(game, state.status.winner)}`;
+    }
   }
 
-  return (
+  const online = game.online;
+  const canRematch = online !== null; // 联机 terminal → 再来一局（全员准备后开新局）
+  const readyList = online?.rematchReady ?? [];
+  const iAmReady = viewerId !== undefined && readyList.includes(viewerId);
+
+    return (
     <div className="overlay">
       <div className="result-card">
-        <h2>{title}</h2>
-        <p className="reason">{reason}</p>
+        <div className={`result-mark${title === '和' ? ' draw' : ''}`}>{title}</div>
+        {winnerLine ? <p className="reason">{winnerLine}</p> : null}
         <div className="result-actions">
-          {/* 联机模式没有“新对局”：房间生命周期由服务器管理。 */}
-          {game.online === null ? (
+          {online !== null ? (
+            <button type="button" onClick={game.rematchReadyAction ?? undefined}>
+              再来一局
+            </button>
+          ) : null}
+          {online === null ? (
             <button type="button" onClick={game.newGame}>
               新对局
             </button>
@@ -126,6 +99,16 @@ export function GameResultOverlay({
             </button>
           ) : null}
         </div>
+        {online !== null ? (
+          <p className="rematch-ready">
+            {state.players
+              .map(
+                (p) =>
+                  `玩家${p.id}${readyList.includes(p.id) ? ' ✓' : online.playerId === p.id && !iAmReady ? '（等待你准备）' : ' 等待准备'}`,
+              )
+              .join(' · ')}
+          </p>
+        ) : null}
       </div>
     </div>
   );

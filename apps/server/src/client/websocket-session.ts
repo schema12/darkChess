@@ -37,15 +37,20 @@ export interface WebSocketSessionEvents {
    * 客户端据此按“回合”重置倒计时（同值不同回合必须重置——Bug1 根因）。
    */
   onState?(state: GameState, turnRemainingSec: number | null): void;
+  /** 求和提议广播（含发起者自己的回执，用于更新剩余次数）。 */
+  onDrawOffer?(event: { fromPlayerId: PlayerId; count: number; max: number }): void;
+  /** 求和回应广播（同意/拒绝/提议失效）。 */
+  onDrawResponse?(event: { fromPlayerId: PlayerId; accept: boolean }): void;
   /** 服务器拒绝（notCurrentPlayer / illegalAction / playerEliminated / roomClosed 等）。 */
   onRejected?(rejection: { code: string; reason: string }): void;
   /** 服务器权威淘汰（原因由服务器声明：timeout / noLegalAction / resign）。 */
   onEliminated?(event: { playerId: PlayerId; reason: EliminationReason }): void;
-  /** 房间公开状态（座位连接情况 / 阵营 / 淘汰 / 房间配置——均为公共信息）。 */
+  /** 房间公开状态（座位连接情况 / 阵营 / 淘汰 / 房间配置 / 再来一局准备——均为公共信息）。 */
   onRoomStatus?(
     status: RoomStatus,
     players: readonly RoomPlayerInfo[],
     config: RoomConfigInfo,
+    rematchReady: readonly PlayerId[],
   ): void;
 }
 
@@ -86,6 +91,14 @@ export interface WebSocketGameSession {
    * 处理指令，客户端在此字段声明任何身份都不生效。
    */
   submit(command: CommandEnvelope): void;
+  /** 认输（服务器权威判负；原因 resign）。 */
+  resign(): void;
+  /** 发起求和（每名玩家每局最多 3 次，被拒同样消耗）。 */
+  drawOffer(): void;
+  /** 回应他人的求和提议。 */
+  drawResponse(accept: boolean): void;
+  /** 再来一局（terminal 后标记已准备；全员准备 → 服务器开新局）。 */
+  rematchReady(): void;
   close(): void;
   /** 服务端分配的座位身份（重连后保持不变）。 */
   readonly playerId: PlayerId;
@@ -142,6 +155,8 @@ export function connectWebSocketGameSession(
     webSocketFactory,
     onConnectionChange,
     onState,
+    onDrawOffer,
+    onDrawResponse,
     onRejected,
     onEliminated,
     onRoomStatus,
@@ -214,6 +229,22 @@ export function connectWebSocketGameSession(
           if (closed) return;
           ws.send(JSON.stringify({ type: 'command', action: command.action } satisfies ClientMessage));
         },
+        resign() {
+          if (closed) return;
+          ws.send(JSON.stringify({ type: 'resign' } satisfies ClientMessage));
+        },
+        drawOffer() {
+          if (closed) return;
+          ws.send(JSON.stringify({ type: 'drawOffer' } satisfies ClientMessage));
+        },
+        drawResponse(accept: boolean) {
+          if (closed) return;
+          ws.send(JSON.stringify({ type: 'drawResponse', accept } satisfies ClientMessage));
+        },
+        rematchReady() {
+          if (closed) return;
+          ws.send(JSON.stringify({ type: 'rematchReady' } satisfies ClientMessage));
+        },
         close() {
           closed = true;
           try {
@@ -259,8 +290,18 @@ export function connectWebSocketGameSession(
         case 'eliminated':
           onEliminated?.({ playerId: message.playerId, reason: message.reason });
           break;
+        case 'drawOffer':
+          onDrawOffer?.({
+            fromPlayerId: message.fromPlayerId,
+            count: message.count,
+            max: message.max,
+          });
+          break;
+        case 'drawResponse':
+          onDrawResponse?.({ fromPlayerId: message.fromPlayerId, accept: message.accept });
+          break;
         case 'roomStatus':
-          onRoomStatus?.(message.status, message.players, message.config);
+          onRoomStatus?.(message.status, message.players, message.config, message.rematchReady);
           break;
       }
     };

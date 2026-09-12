@@ -9,7 +9,8 @@ export const SCHEMA_VERSION = 1;
 /** 和棋原因（需求十五），由 DrawCondition 产生。 */
 export type DrawReason =
   | { readonly kind: 'noCapture'; readonly threshold: number } // 连续未吃子达阈值
-  | { readonly kind: 'repetition'; readonly count: number }; // 重复局面达次数
+  | { readonly kind: 'repetition'; readonly count: number } // 重复局面达次数
+  | { readonly kind: 'agreement' }; // 双方/全体存活玩家同意和棋（联机房间权威判定）
 
 /**
  * 对局状态：进行中 / 某方胜 / 和棋。

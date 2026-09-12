@@ -74,6 +74,8 @@ export interface GameRoom {
   getStatus(): RoomStatus;
   /** 回合计时策略（毫秒；undefined = 不限时）。属于房间生命周期，替换/重开时继承。 */
   timerPolicyMs(): number | undefined;
+  /** 已点击“再来一局”的玩家（terminal 后准备阶段）。 */
+  rematchReadyPlayers(): readonly PlayerId[];
   /** 房间配置（模式/计时），随 welcome/roomStatus 广播给客户端。 */
   configInfo(): RoomConfigInfo;
   /** 在线座位数（空闲/TTL 判定用）。 */
@@ -95,6 +97,13 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
   /** 全员离线的空闲暂停：计时冻结，重连后以剩余值继续。 */
   let idlePaused = false;
   let pausedRemainingMs: number | null = null;
+  /** 求和：每名玩家每局最多主动发起 MAX_DRAW_OFFERS 次（被拒同样消耗）。 */
+  const MAX_DRAW_OFFERS = 3;
+  const drawOfferCounts = new Map<PlayerId, number>();
+  /** 待回应的求和：发起者 + 尚未回应的存活玩家。 */
+  let pendingDraw: { from: PlayerId; awaiting: PlayerId[] } | null = null;
+  /** 再来一局：terminal 后已点击“再来一局”的玩家（全员准备 → 新对局）。 */
+  const rematchReady = new Set<PlayerId>();
 
   function seatInfo(seat: Seat): RoomPlayerInfo {
     const player = state?.players.find((pl) => pl.id === seat.playerId);
@@ -134,6 +143,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       status,
       players: [...seats.values()].map(seatInfo),
       config: configInfo(),
+      rematchReady: [...rematchReady],
     });
   }
 
@@ -215,6 +225,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     state = next;
     if (debug) console.log(`[diag] forfeit t=${Date.now()} room=${config.roomId} player=${playerId} reason=${reason}`);
     announceEliminations(previous, reason, playerId);
+    cancelBrokenDrawOffer();
     if (state.status.kind === 'inProgress') {
       armTimer(); // 先重置计时，广播携带新回合的剩余时间
       broadcast(stateMessage(state));
@@ -228,6 +239,9 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     if (status !== 'waiting') return;
     state = config.mode.createInitialState(config.seed);
     status = 'playing';
+    drawOfferCounts.clear();
+    pendingDraw = null;
+    rematchReady.clear();
     armTimer(); // 先重置计时，开局广播携带剩余时间
     broadcast(stateMessage(state));
     broadcastRoomStatus();
@@ -360,6 +374,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     state = engine.apply(state, action);
     if (debug) console.log(`[diag] applied t=${Date.now()} turn=${state.turnNumber}`);
     announceEliminations(previous, 'noLegalAction');
+    cancelBrokenDrawOffer();
     if (state.status.kind === 'inProgress') {
       armTimer(); // 先重置计时，广播携带新回合的剩余时间
       broadcast(stateMessage(state));
@@ -376,6 +391,110 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       case 'resign':
         forfeit(playerId, 'resign');
         break;
+      case 'drawOffer':
+        handleDrawOffer(playerId);
+        break;
+      case 'drawResponse':
+        handleDrawResponse(playerId, message.accept);
+        break;
+      case 'rematchReady':
+        handleRematchReady(playerId);
+        break;
+    }
+  }
+
+  function activePlayerIds(): PlayerId[] {
+    if (!state || state.status.kind !== 'inProgress') return [];
+    return state.players
+      .filter((p) => p.eliminated !== true)
+      .map((p) => p.id);
+  }
+
+  /** 求和提议：对局中、发起者为存活玩家、无待回应提议、次数未满（每人每局 3 次）。 */
+  function handleDrawOffer(playerId: PlayerId): void {
+    const seat = seats.get(playerId);
+    if (status !== 'playing' || !seat?.connected) {
+      seat?.connection?.send({ type: 'rejected', code: 'drawRejected', reason: '当前不能发起求和' });
+      return;
+    }
+    if (state?.status.kind !== 'inProgress') {
+      seat.connection?.send({ type: 'rejected', code: 'drawRejected', reason: '当前不能发起求和' });
+      return;
+    }
+    if (pendingDraw !== null) {
+      seat.connection?.send({ type: 'rejected', code: 'drawPending', reason: '已有待回应的求和提议' });
+      return;
+    }
+    if (activePlayerIds().length < 2) {
+      seat.connection?.send({ type: 'rejected', code: 'drawRejected', reason: '当前不能求和' });
+      return;
+    }
+    const count = drawOfferCounts.get(playerId) ?? 0;
+    if (count >= MAX_DRAW_OFFERS) {
+      seat.connection?.send({ type: 'rejected', code: 'drawLimit', reason: '求和次数已用完（3/3）' });
+      return;
+    }
+    const newCount = count + 1;
+    drawOfferCounts.set(playerId, newCount);
+    pendingDraw = {
+      from: playerId,
+      awaiting: activePlayerIds().filter((id) => id !== playerId),
+    };
+    broadcast({ type: 'drawOffer', fromPlayerId: playerId, count: newCount, max: MAX_DRAW_OFFERS });
+  }
+
+  /** 求和回应：全部存活玩家同意 → 权威和棋；任一拒绝 → 继续（次数已消耗）。 */
+  function handleDrawResponse(playerId: PlayerId, accept: boolean): void {
+    if (pendingDraw === null || !pendingDraw.awaiting.includes(playerId)) return;
+    const from = pendingDraw.from;
+    broadcast({ type: 'drawResponse', fromPlayerId: playerId, accept });
+    if (!accept) {
+      pendingDraw = null; // 拒绝：对局继续（发起者次数已消耗）
+      return;
+    }
+    pendingDraw = { ...pendingDraw, awaiting: pendingDraw.awaiting.filter((id) => id !== playerId) };
+    if (pendingDraw.awaiting.length === 0) {
+      // 全体存活玩家同意：权威和棋（产品级终局，服务器权威判定）。
+      pendingDraw = null;
+      if (state && state.status.kind === 'inProgress') {
+        state = { ...state, status: { kind: 'drawn', reason: { kind: 'agreement' } } };
+        finish();
+      }
+    }
+  }
+
+  /** 结算后清理失效的求和提议（响应者被淘汰/离开时提议作废，视为被拒）。 */
+  function cancelBrokenDrawOffer(): void {
+    if (pendingDraw === null) return;
+    if (seats.get(pendingDraw.from)?.connected !== true) {
+      const from = pendingDraw.from;
+      pendingDraw = null;
+      broadcast({ type: 'drawResponse', fromPlayerId: from, accept: false });
+      return;
+    }
+    const broken = pendingDraw.awaiting.find((id) => {
+      const seat = seats.get(id);
+      const player = state?.players.find((p) => p.id === id);
+      return !seat?.connected || player?.eliminated === true;
+    });
+    if (broken !== undefined) {
+      const from = pendingDraw.from;
+      pendingDraw = null;
+      broadcast({ type: 'drawResponse', fromPlayerId: broken, accept: false });
+    }
+  }
+
+  /** 再来一局：terminal 后已连接玩家依次准备，全员准备 → 以原房间配置开新局。 */
+  function handleRematchReady(playerId: PlayerId): void {
+    if (status !== 'finished') return;
+    const seat = seats.get(playerId);
+    if (!seat?.connected) return;
+    rematchReady.add(playerId);
+    broadcastRoomStatus();
+    const connectedSeats = [...seats.values()].filter((s) => s.connected);
+    if (connectedSeats.length === config.seatIds.length && connectedSeats.every((s) => rematchReady.has(s.playerId))) {
+      status = 'waiting'; // start() 的守卫要求 waiting；座位/令牌/配置全部保持
+      start(); // 同房间/同座位/同配置的新 GameState（start 内部重置 rematch/求和状态）
     }
   }
 
@@ -394,6 +513,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     getState: () => state,
     getStatus: () => status,
     timerPolicyMs: () => config.turnTimeoutMs,
+    rematchReadyPlayers: () => [...rematchReady],
     configInfo,
     onlineCount,
     playersInfo: () => [...seats.values()].map(seatInfo),

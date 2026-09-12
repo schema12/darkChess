@@ -562,3 +562,42 @@ C 获胜才终局）。未发现提前弹 Overlay 的代码路径。
 
 core 86/86 · server **62/62**（+4 语义互斥回归）· web typecheck/build ✅ · 零进程残留。
 Browser-level / Physical LAN：PENDING MANUAL（同前）。
+
+---
+
+# v1.0.3：对局体验完善（认输 / 求和 / 再来一局 / 断线 / 倒计时声音 / 简化结算）
+
+## 实现方式
+
+- **认输（forfeit）**：协议已有 `{type:'resign'}` + 服务端 `forfeit(playerId,'resign')`；本轮补齐
+  client session 方法（`session.resign()`）与 UI（局内“认输”按钮 → 确认弹窗 → 权威判负）。
+  服务器校验：连接绑定身份、对局进行中、玩家未淘汰。淘汰原因 = resign（严格互斥语义不变）。
+- **求和（draw offer）**：新协议 `{drawOffer}`/`{drawResponse,accept}`；房间维护
+  `drawOfferCounts`（每人每局 3 次，被拒同样消耗，服务器权威）与 `pendingDraw`（发起者+待回应的
+  存活玩家集）。全员存活玩家同意 → 权威和棋（新 `DrawReason.agreement`，core 最小扩展+序列化支持）；
+  任一拒绝 → 继续；响应者被淘汰/离线 → 提议作废（广播 accept=false）。求和不暂停计时。
+- **再来一局（rematch）**：terminal 后 `{rematchReady}` 标记准备；roomStatus 广播 `rematchReady`
+  列表；**全部已连接玩家准备 → 同房间开新 GameState**（座位/令牌/模式/计时策略继承，
+  draw 计数与 ready 集重置，旧局动作在 terminal 期间一律拒绝）。
+- **断线 UI**：PlayerCard 依 roomPlayers.connected 显示“断线”；**断线不暂停计时**（服务器
+  回合计时继续，超时照常 forfeit）；重连恢复原座位与剩余时间（既有机制）。
+- **最后 10 秒警告**：数字红色 + 脉动（既有样式），新增逐秒提示音 `tick`（每秒值最多播放一次，
+  soundManager 最小扩展一个 SoundEvent）；仅当前行动倒计时发声，等待中的卡不发声。
+- **结算简化**：终局 Overlay 只有大字 胜/负/和（+ 一行胜者身份、再来一局/返回/新对局按钮、
+  rematch 准备列表）；原因类信息保留在局内横幅（淘汰/求和提示）。三人被淘汰查看者：
+  中央 Overlay “负 + 观战/退出”（替代旧内联卡片），选择观战后按既有 spectate 流程。
+- **三人淘汰提示文案**：淘汰横幅区分对局是否继续——继续时“玩家A超时判负，游戏继续”/
+  “玩家A无合法行动，判负，游戏继续”/“玩家A认输，游戏继续”；终局时“已判负并淘汰”。
+
+## 测试（server +8：room-actions.test.ts）
+
+2P 认输（resign 恰一条/B 胜）· 3P 认输（继续）· 求和拒绝→继续+消耗 · 求和同意→agreement 和棋 ·
+3P B 同意 C 拒绝→继续 / 全员同意→和棋 · 回应者淘汰提议作废 · 次数 3/3 后 drawLimit ·
+rematch 单人准备不开局 / terminal 动作拒绝 / 全员准备→新 GameState（同座位、配置继承、状态重置）·
+准备期求和被拒。
+
+## 结果
+
+core 86/86 · server **70/70** · web typecheck/build ✅ · 零进程残留。
+Browser-level / Physical LAN：PENDING MANUAL（重点：认输确认、求和弹窗不阻塞计时、
+最后 10 秒逐秒滴声、断线卡“断线”+计时继续、rematch 全员准备开新局）。

@@ -3,7 +3,7 @@
  * 第一版使用 Web Audio 合成简单占位音效（无外部素材）；
  * 后续替换正式音效只需改本模块（资源层），调用方无需改动。
  */
-export type SoundEvent = 'reveal' | 'move' | 'capture' | 'win' | 'draw';
+export type SoundEvent = 'reveal' | 'move' | 'capture' | 'win' | 'draw' | 'tick';
 
 export interface SoundManager {
   play(event: SoundEvent): void;
@@ -75,6 +75,10 @@ export function createSoundManager(): SoundManager {
         case 'draw':
           tone(392, 0.16, 'sine', 0.11, 0);
           tone(311.13, 0.24, 'sine', 0.11, 0.16);
+          break;
+        case 'tick':
+          // 最后 10 秒逐秒提示音（短促、低音量）。
+          tone(880, 0.05, 'sine', 0.07);
           break;
       }
     },

@@ -919,3 +919,40 @@ body {
   border-radius: 6px;
   color: #ffb74d;
 }
+
+/* —— v1.0.3：结果大字 / 局内动作 / 再来一局准备 —— */
+
+.result-mark {
+  font-size: 64px;
+  font-weight: 700;
+  line-height: 1.1;
+  margin-bottom: 10px;
+}
+
+.result-mark.draw {
+  color: #8c7b63;
+}
+
+.rematch-ready {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: #6b5a3d;
+}
+
+.in-game-actions {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  max-width: 900px;
+  justify-content: center;
+}
+
+.in-game-actions .secondary-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+}
+
+.in-game-actions .secondary-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

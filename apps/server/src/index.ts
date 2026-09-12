@@ -46,7 +46,10 @@ function isClientMessage(value: unknown): value is ClientMessage {
     const action = (value as { action?: unknown }).action;
     return typeof action === 'object' && action !== null;
   }
-  return type === 'resign';
+  if (type === 'drawResponse') {
+    return typeof (value as { accept?: unknown }).accept === 'boolean';
+  }
+  return type === 'resign' || type === 'drawOffer' || type === 'rematchReady';
 }
 
 /**

@@ -51,6 +51,12 @@ export interface OnlineInfo {
   roomPlayers: readonly RoomPlayerInfo[];
   /** 房间配置（房主创建时决定，服务器权威；加入者只读）。 */
   config: RoomConfigInfo | null;
+  /** 已点击“再来一局”的玩家（terminal 后准备阶段）。 */
+  rematchReady: readonly string[];
+  /** 本玩家已消耗的求和次数（服务器权威）。 */
+  myDrawCount: number;
+  /** 待本人回应的求和提议发起者（null = 无）。 */
+  pendingDrawFrom: string | null;
   lastError: string | null;
 }
 
@@ -75,6 +81,20 @@ export interface GameController {
   turnRemainingSec: number | null;
   /** 本回合计时策略时长（秒）；非当前行动玩家卡片静态显示用。 */
   turnPolicySec: number | null;
+  /** 本机已消耗的求和次数（联机；服务器权威）。 */
+  myDrawCount: number;
+  /** 待本人回应的求和提议发起者（联机；null = 无）。 */
+  pendingDrawFrom: string | null;
+  /** 已点击“再来一局”的玩家（联机 terminal 后）。 */
+  rematchReady: readonly string[];
+  /** 认输（联机；确认弹窗由 UI 负责）。 */
+  resign: (() => void) | null;
+  /** 发起求和（联机）。 */
+  drawOffer: (() => void) | null;
+  /** 回应求和（联机）。 */
+  drawResponse: ((accept: boolean) => void) | null;
+  /** 再来一局：标记本机已准备（联机 terminal 后）。 */
+  rematchReadyAction: (() => void) | null;
   clickCell: (x: number, y: number) => void;
   newGame: () => void;
   /** 联机信息（仅 online 模式有效）。 */
@@ -224,6 +244,13 @@ export function useLocalGame(createMode: () => GameMode): GameController {
     toast,
     turnRemainingSec: null, // 本地不计时
     turnPolicySec: null,
+    myDrawCount: 0,
+    pendingDrawFrom: null,
+    rematchReady: [],
+    resign: null,
+    drawOffer: null,
+    drawResponse: null,
+    rematchReadyAction: null,
     clickCell,
     newGame,
     online: null,
@@ -305,6 +332,9 @@ export function useOnlineGame(
     token: connection.token ?? '',
     roomPlayers: [],
     config: null,
+    rematchReady: [],
+    myDrawCount: 0,
+    pendingDrawFrom: null,
     lastError: null,
   });
   const sessionRef = useRef<WebSocketGameSession | null>(null);
@@ -318,9 +348,16 @@ export function useOnlineGame(
   const [attempt, setAttempt] = useState(0);
   // 令牌连接失败的“无令牌回退”只允许一次（防无限重试）。
   const retryRef = useRef(false);
+  // 求和：本机已消耗次数 / 待本人回应的提议（服务器权威，客户端仅展示与发送）。
+  const [myDrawCount, setMyDrawCount] = useState(0);
+  const [pendingDrawFrom, setPendingDrawFrom] = useState<string | null>(null);
+  const onDrawOfferRef = useRef<(e: { fromPlayerId: string; count: number; max: number }) => void>(() => undefined);
+  const onDrawResponseRef = useRef<(e: { fromPlayerId: string; accept: boolean }) => void>(() => undefined);
   // LAN 延迟诊断（仅 DEV 构建）：submit → 收到权威 state 的往返时延 + turn 对齐。
   const dev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
   const diagRef = useRef<{ submitAt: number; turn: number } | null>(null);
+  const pendingDrawRef = useRef<string | null>(pendingDrawFrom);
+  pendingDrawRef.current = pendingDrawFrom;
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((text: string) => {
@@ -331,6 +368,21 @@ export function useOnlineGame(
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
+
+  // 求和处理器的注册点（connect 的 options 经 ref 调用以规避 disposed 闭包问题）。
+  onDrawOfferRef.current = (event) => {
+    if (event.fromPlayerId === onlineRef.current.playerId) {
+      setMyDrawCount(event.count); // 自己的提议回执：更新已消耗次数
+    } else {
+      setPendingDrawFrom(event.fromPlayerId); // 弹出求和询问（不阻塞计时）
+    }
+  };
+  onDrawResponseRef.current = (event) => {
+    if (pendingDrawRef.current === event.fromPlayerId) {
+      setPendingDrawFrom(null);
+      showToast(`玩家${event.fromPlayerId}${event.accept ? '同意和棋' : '拒绝和棋'}`);
+    }
+  };
 
   // 回合倒计时（显示用）：服务器为唯一权威，每条广播携带 (turnNumber, 剩余秒)。
   // 重置条件 = 回合变化或秒数变化——相邻两回合同值（30→30）也必须重置（Bug1 根因）。
@@ -346,6 +398,16 @@ export function useOnlineGame(
   }, []);
   const turnRemainingSec =
     turnTimer === null ? null : Math.max(0, Math.ceil((turnTimer.deadline - now) / 1000));
+  // 最后 10 秒逐秒提示音（每秒值最多触发一次；仅当前行动者的倒计时，权威判定仍在服务器）。
+  const lastBeepRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (turnRemainingSec !== null && turnRemainingSec >= 1 && turnRemainingSec <= 10) {
+      if (lastBeepRef.current !== turnRemainingSec) {
+        lastBeepRef.current = turnRemainingSec;
+        soundManager.play('tick');
+      }
+    }
+  }, [turnRemainingSec]);
 
   useEffect(() => {
     if (!connection.url) {
@@ -365,6 +427,9 @@ export function useOnlineGame(
               token: '',
               roomPlayers: [],
               config: null,
+              rematchReady: [],
+              myDrawCount: 0,
+              pendingDrawFrom: null,
               lastError: null,
             },
       );
@@ -386,6 +451,9 @@ export function useOnlineGame(
       token: tokenRef.current ?? '',
       roomPlayers: [],
       config: null,
+      rematchReady: [],
+      myDrawCount: 0,
+      pendingDrawFrom: null,
       lastError: null,
     });
 
@@ -395,6 +463,8 @@ export function useOnlineGame(
       mode: connection.mode,
       timerSec: connection.timerSec,
       token: tokenRef.current,
+      onDrawOffer: (event) => onDrawOfferRef.current(event),
+      onDrawResponse: (event) => onDrawResponseRef.current(event),
       onState: (next, remaining) => {
         if (disposed) return;
         // 联机模式淘汰原因唯一来源 = 服务器 eliminated 消息（携带权威 reason，先于 state 到达）。
@@ -407,6 +477,11 @@ export function useOnlineGame(
         }
         stateRef.current = next;
         setState(next);
+        if (next.turnNumber === 0) {
+          // 新对局（含再来一局）：重置本机求和计数与待回应提议。
+          setMyDrawCount(0);
+          setPendingDrawFrom(null);
+        }
         if (next.status.kind !== 'inProgress') {
           // 对局已终局：重连凭证使命完成，立即清除，避免污染之后的新游戏流程。
           deleteStoredToken(connection.url, connection.mode, connection.roomId);
@@ -436,13 +511,14 @@ export function useOnlineGame(
         if (disposed) return;
         setOnline((info) => ({ ...info, status }));
       },
-      onRoomStatus: (status, players, config) => {
+      onRoomStatus: (status, players, config, rematchReady) => {
         if (disposed) return;
         setOnline((info) => ({
           ...info,
           status: status === 'waiting' ? 'waiting' : status === 'playing' ? 'playing' : info.status,
           roomPlayers: players,
           config: config ?? info.config,
+          rematchReady: rematchReady ?? info.rematchReady,
         }));
       },
       onRejected: (rejection) => {
@@ -607,6 +683,13 @@ export function useOnlineGame(
     turnRemainingSec:
       turnTimer !== null ? Math.max(0, Math.ceil((turnTimer.deadline - now) / 1000)) : null,
     turnPolicySec: turnTimer?.policySec ?? null,
+    myDrawCount,
+    pendingDrawFrom,
+    rematchReady: online.rematchReady,
+    resign: useCallback(() => sessionRef.current?.resign(), []),
+    drawOffer: useCallback(() => sessionRef.current?.drawOffer(), []),
+    drawResponse: useCallback((accept: boolean) => sessionRef.current?.drawResponse(accept), []),
+    rematchReadyAction: useCallback(() => sessionRef.current?.rematchReady(), []),
     clickCell,
     newGame: () => undefined, // 联机模式没有“新对局”（房间生命周期由服务器管理）
     online,
