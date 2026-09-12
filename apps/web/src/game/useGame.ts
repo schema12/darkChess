@@ -483,6 +483,13 @@ export function useOnlineGame(
           setMyDrawCount(0);
           setPendingDrawFrom(null);
           setNotices([]);
+          // 再来一局开新局：恢复本座位重连凭证（上一局终局时已按规则删除，
+          // 而服务器座位/令牌跨局保留——不恢复则退出后无法凭令牌回到进行中的新局）。
+          const session = sessionRef.current;
+          if (session) {
+            saveStoredToken(connection.url, connection.mode, connection.roomId, session.token);
+            tokenRef.current = session.token;
+          }
         }
         if (next.status.kind !== 'inProgress') {
           // 对局已终局：重连凭证使命完成，立即清除，避免污染之后的新游戏流程。

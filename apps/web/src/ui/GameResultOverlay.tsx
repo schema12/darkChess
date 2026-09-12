@@ -79,14 +79,15 @@ export function GameResultOverlay({
 
     return (
     <div className="result-wrap">
-      <div className="result-card">
-        <div className={`result-mark ${title === '胜' ? 'win' : title === '和' ? 'draw' : ''}`}>
-          {title}
+      <div className="result-inner">
+        <div className="result-card">
+          <div className={`result-mark ${title === '胜' ? 'win' : title === '和' ? 'draw' : ''}`}>
+            {title}
+          </div>
+          {winnerLine ? <p className="reason">{winnerLine}</p> : null}
         </div>
-        {winnerLine ? <p className="reason">{winnerLine}</p> : null}
-      </div>
-      {/* 操作按钮位于结果卡片外部、卡片正下方（产品规格） */}
-      <div className="result-actions">
+        {/* 操作按钮位于结果卡片外部、卡片正下方（产品规格）；宽度与卡片对齐 */}
+        <div className="result-actions">
           {online !== null ? (
             <button type="button" onClick={game.rematchReadyAction ?? undefined}>
               再来一局
@@ -117,7 +118,8 @@ export function GameResultOverlay({
               })
               .join(' · ')}
           </p>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

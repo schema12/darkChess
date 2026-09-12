@@ -338,6 +338,37 @@ describe('v1.0.3：再来一局（rematch ready）', () => {
     b.close();
   });
 
+  it('rematch 开新局后原令牌仍可重连（客户端 token 恢复机制的服务器前提）', async () => {
+    await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 9, roomId: 'rm-token' });
+    const a = await join('rm-token', '2p');
+    const b = await join('rm-token', '2p');
+    await untilStarted(a, b);
+    const token = a.token; // 本局座位令牌
+
+    // 终局：A 在自己的回合认输（当前行动玩家✓）→ B 胜
+    a.resign();
+    await until(() => a.getState()?.status.kind === 'won', 3000);
+
+    // 双方仍在房间内→ rematch ×2 → 同房间开新局（座位/令牌保留）
+    a.rematchReady();
+    b.rematchReady();
+    await until(
+      () => a.getState()?.turnNumber === 0 && a.getState()?.status.kind === 'inProgress',
+      3000,
+    );
+
+    // A 断线后用原令牌重连 → 恢复原座位，进入的是新局
+    a.close();
+    const again = await connectWebSocketGameSession({
+      url: `ws://localhost:${serverPort}`, roomId: 'rm-token', mode: '2p', token,
+    });
+    expect(again.playerId).toBe('A');
+    expect(again.getState()!.turnNumber).toBe(0);
+    expect(again.getState()!.status.kind).toBe('inProgress');
+    again.close();
+    b.close();
+  }, 30000);
+
   it('rematch 准备期间不可发起求和/认输（旧局已 terminal）', async () => {
     await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 8, roomId: 'rm-2' });
     const a = await join('rm-2', '2p');

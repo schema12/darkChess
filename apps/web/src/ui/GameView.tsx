@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { GameController, ReadyGameController } from '../game/useGame';
 import { modeDrawThresholds } from '../game/modeInfo';
 import { friendlyConnectError } from './friendly';
@@ -17,6 +17,13 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
   // 淘汰玩家的“继续观战”选择：仅本地 UI 态（会话/身份/淘汰状态不变）。
   const [spectating, setSpectating] = useState(false);
   const [confirmResign, setConfirmResign] = useState(false);
+  // transient 确认框生命周期：终局或新局（turnNumber 0）到达时强制清除，
+  // 防止确认框与结算 Overlay 叠加、或在再来一局后复活。
+  useEffect(() => {
+    if (state.status.kind !== 'inProgress' || state.turnNumber === 0) {
+      setConfirmResign(false);
+    }
+  }, [state.status.kind, state.turnNumber]);
   const me = online ? (state.players.find((p) => p.id === online.playerId) ?? null) : null;
   const iAmOut = me?.eliminated === true;
   const viewerActive = online !== null && me !== null && me.eliminated !== true;
@@ -69,15 +76,23 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
         </div>
       ) : null}
       <BoardView game={game} />
-      {online && viewerActive && ownTurn && state.status.kind === 'inProgress' ? (
+      {online && viewerActive && state.status.kind === 'inProgress' ? (
         <div className="in-game-actions">
-          <button type="button" className="secondary-btn" onClick={() => setConfirmResign(true)}>
+          {/* 行恒渲染保证下方布局稳定；服务端仍权威拒绝非当前行动玩家的认输/求和 */}
+          <button
+            type="button"
+            className="secondary-btn"
+            disabled={!ownTurn}
+            title={ownTurn ? undefined : '还没轮到你行动'}
+            onClick={() => setConfirmResign(true)}
+          >
             认输
           </button>
           <button
             type="button"
             className="secondary-btn"
-            disabled={game.myDrawCount >= 3 || game.pendingDrawFrom !== null}
+            disabled={!ownTurn || game.myDrawCount >= 3 || game.pendingDrawFrom !== null}
+            title={ownTurn ? undefined : '还没轮到你行动'}
             onClick={game.drawOffer ?? undefined}
           >
             求和{game.myDrawCount > 0 ? `（${game.myDrawCount}/3）` : ''}
@@ -109,7 +124,13 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
             <h2>认输</h2>
             <p className="reason">确定要认输吗？认输后你将被判负淘汰。</p>
             <div className="result-actions">
-              <button type="button" onClick={game.resign ?? undefined}>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmResign(false); // 确认框立即关闭，再发送 resign
+                  game.resign?.();
+                }}
+              >
                 认输
               </button>
               <button type="button" className="secondary" onClick={() => setConfirmResign(false)}>

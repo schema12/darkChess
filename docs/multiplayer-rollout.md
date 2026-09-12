@@ -732,3 +732,28 @@ v1.0.3.1 的布局重构把按钮移出了 `.result-card`，但旧的 `.result-c
 
 core 86/86 · server **74/74** · web typecheck/build ✅ · 零进程残留。
 LAN 人工验收：**PENDING**（Draw reject 链路 / Result UI / 双人文案按任务清单执行）。
+
+---
+
+# v1.0.3.4：结算间距 / rematch 令牌恢复（两处小修）
+
+## 1. 结算卡片与按钮间距
+
+根因：`.result-inner`（卡片/按钮/Ready 的对齐容器）未声明 `gap`，卡片下边框与按钮
+上边框直接相邻（叠加卡片向下投影后视觉上几乎重合）。修复：`.result-inner` 加
+`gap: 12px`；宽度对齐机制（stretch + fit-content）与卡片 280px 居中不受影响。
+
+## 2. rematch 新局的令牌恢复
+
+根因（场景）：对局一终局时客户端按规则删除本机令牌 → rematch 在**同一房间**开出
+新局（服务器座位/令牌原样保留）→ 玩家中途退出后再进入时无令牌可凭、全新 join 又被
+进行中房间拒绝 → 无法回到新局。
+修复：`onState` 收到新局（turnNumber 0 且 inProgress）时，将本 session 仍持有的
+座位令牌重新写入本机存储——与 v1.0.2.1“terminal 删除防污染”规则形成闭环：
+终局删除 → rematch 新局开始 → 立即重保。
+回归测试：rematch 开新局后，A 断线并用**上一局的原令牌**重连 → 恢复原座位 A、
+进入的是新局 GameState（turnNumber 0）。
+
+## 结果
+
+core 86/86 · server **75/75**（+1）· web typecheck/build ✅ · 零进程残留。
