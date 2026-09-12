@@ -69,6 +69,8 @@ export interface GameRoom {
   close(): void;
   getState(): GameState | null;
   getStatus(): RoomStatus;
+  /** 回合计时策略（毫秒；undefined = 不限时）。属于房间生命周期，替换/重开时继承。 */
+  timerPolicyMs(): number | undefined;
   playersInfo(): readonly RoomPlayerInfo[];
 }
 
@@ -219,7 +221,13 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     if (!seat) {
       const reason = '无效的重连令牌';
       connection.send({ type: 'rejected', code: 'invalidToken', reason });
-      return { ok: false, reason };
+      return { ok: false, reason, code: 'invalidToken' };
+    }
+    if (status === 'finished') {
+      // terminal 房间：旧 token 不得复活已结束的对局（结果此前已广播送达）。
+      const reason = '对局已结束，无法恢复';
+      connection.send({ type: 'rejected', code: 'roomClosed', reason });
+      return { ok: false, reason, code: 'roomClosed' };
     }
     // 恢复原座位：playerId / 阵营 / 棋局 / 淘汰状态全部保持，仅恢复连接。
     seat.connection = connection;
@@ -288,6 +296,7 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     close: disarmTimer,
     getState: () => state,
     getStatus: () => status,
+    timerPolicyMs: () => config.turnTimeoutMs,
     playersInfo: () => [...seats.values()].map(seatInfo),
   };
 }

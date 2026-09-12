@@ -68,15 +68,7 @@ function GameContent({ game, onExit }: { game: ReadyGameController; onExit: () =
             <span className="gs-faction">（{faction}）</span>
             {iAmOut && spectating ? <span className="spectate-badge">观战中</span> : null}
           </span>
-          <span className="gs-meta">
-            {game.turnRemainingSec !== null ? (
-              <span className={`gs-timer${game.turnRemainingSec <= 10 ? ' urgent' : ''}`}>
-                ⏱ {String(Math.floor(game.turnRemainingSec / 60)).padStart(2, '0')}:
-                {String(game.turnRemainingSec % 60).padStart(2, '0')}
-              </span>
-            ) : null}
-            第 {state.turnNumber + 1} 手
-          </span>
+          <span className="gs-meta">第 {state.turnNumber + 1} 手</span>
         </div>
         <div className="gs-hint">{hint}</div>
       </section>

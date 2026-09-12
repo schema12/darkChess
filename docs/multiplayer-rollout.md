@@ -394,3 +394,63 @@ disconnected/terminal）均有明确用户可见表达。
 本地 2P/3P ✅ · 好友联机 2P/3P ✅ · 好友房不限时/可选计时 ✅ · 服务端 timeout ✅ · timeout UI ✅ ·
 reconnect ✅ · terminal token 隔离 ✅ · 新局不恢复旧局 ✅ · 淘汰 ✅ · 淘汰观战 ✅ · 个性化结算 ✅ ·
 LAN 2P/3P ✅（自动化等价验证）。陌生人匹配 = ❌ v1.0 不实现（Future v2）。
+
+---
+
+# v1.0.1：在线生命周期修复 + 对战 UI 重构（Stage 0–12）
+
+> 基线：v1.0.0（commit 3111405）保持原样可回滚；本节修复真实 LAN 双设备测试暴露的问题。
+
+## Stage 1 审计结论（六 Bug 根因，全部经代码验证）
+
+| Bug | 现象 | 根因（层级） |
+|---|---|---|
+| 1 | A 落子后 B 倒计时不重启 | **客户端 React 层**：倒计时 effect 依赖 `[remainingSec]`，相邻两回合同值（30→30）不触发 effect，deadline 沿用旧回合。服务器 armTimer→广播每回合正确 |
+| 2 | terminal→返回→重进仍见旧终局 | **服务端+客户端**：rejoin 不拒绝 finished 房间；离线期间对局结束时客户端收不到 terminal 广播、token 未删除 |
+| 3 | 重进后棋盘可见但“未连接”/无法操作 | **客户端**：换模式后 effect 不重跑（deps 缺 mode）+ idle 分支不清 stale state |
+| 4 | 2P 离开后点“三人”进入旧 2P | **客户端**：同上——deps 缺 mode，App 的 room→game 自动切换被旧 state 触发 |
+| 5 | 重进后 timer 消失 | **服务端**：finished 房间替换时未继承旧房计时策略（回退为不限时） |
+| 6 | 双端计时统一 | 设计正确；修 Bug1 后客户端按 (turnNumber, 剩余秒) 对齐服务器 |
+
+## Stage 2–6 修复
+
+- **计时同步（Bug1/6）**：session 的 `onState` 改为携带 `(state, turnRemainingSec)`（单回调关联回合与剩余）；
+  客户端以 `(turnNumber, 秒数)` 为重置键——同值跨回合也重置 deadline；显示用 250ms ticker 读派生值。
+- **连接/会话清理（Bug3/4）**：effect deps 加入 `connection.mode`；idle 分支清除 stale state/notices/timer；
+  tokenRef 按每条连接重新解析（上一连接/上一模式的 token 不复用）。
+- **terminal 生命周期（Bug2）**：服务端 rejoin 拒绝 finished 房间（roomClosed，不复活旧局）；
+  会话层内置**单次**无令牌回退（令牌型拒绝 → 清 token → 全新 join → finished 房间替换 → 全新对局），
+  hook 层同名回退保留且仅一次（防无限重试）。
+- **计时生命周期（Bug5）**：`GameRoom.timerPolicyMs()` 暴露策略；finished 房间替换时继承旧房策略，
+  新连接显式 `?timer=` 声明优先。
+
+## Stage 7 对战 UI 重构
+
+`PlayerPanel` 重构为 **PlayerCard 体系**（N 玩家自适应）：头像（座位字母圆标，预留替换）+ 名称
+（联机标“（你）”）+ 阵营 + 回合状态（你的回合/行动中/等待中/已淘汰）+ **倒计时绑定玩家卡**
+（当前行动者实时剩余，其余玩家显示满额静止）；当前玩家金色边框+光效；≤10s 红色脉动仅出现在
+当前卡内；不限时/本地不显示计时器；棋盘下方横幅式计时移除。
+
+## Stage 8 回归测试（新增/更新 6 个）
+
+连续回合同值剩余各自广播（Bug1 服务器锚点）· 陈旧连接 close 不 clobber 重连座位（Bug3）·
+terminal 旧 token rejoin 拒绝 + 客户端回退进入全新对局（Bug2）· 替换房间继承计时策略（Bug5）·
+跨模式 token 隔离（回退后进入目标模式全新房间，2P↔3P 双向）· 2P reconnect 回归。
+
+## Stage 9–11
+
+- 浏览器级测试：**PENDING**（无 Playwright；会话层已用浏览器同代码路径全覆盖；建议 v2 引入最小 Playwright 回归）。
+- 全量：core 86/86 · server **47/47**（+3）· web typecheck/build ✅ · 零进程残留 · 无调试遗留。
+- v1.0.0 基线原样保留（tag 未动）。
+
+## 验收语义（对用户可见行为）
+
+```
+A 手机                      B 手机
+进入 2P → CONNECTED         进入 2P → CONNECTED
+A 回合 00:30（你的回合）      B 卡：等待中 00:30
+A 落子 → B 卡立刻变“你的回合 00:30”
+leave → rejoin → CONNECTED → 继续
+terminal → 返回 → 重进同名房间 → 全新对局（旧局不复活）
+2P → leave → 3P → 真正进入 3P
+```

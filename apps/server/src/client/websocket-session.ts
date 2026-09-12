@@ -30,10 +30,12 @@ export type ConnectionStatus = 'connecting' | 'open' | 'closed';
 export interface WebSocketSessionEvents {
   /** 连接状态变化（connecting -> open -> closed）。 */
   onConnectionChange?(status: ConnectionStatus): void;
-  /** 每次权威状态广播（含连接期触发的开局广播——不会错过任何一份）。 */
-  onState?(state: GameState): void;
-  /** 每次权威状态广播携带的回合剩余秒数（null = 不限时）。 */
-  onTurnRemainingSec?(sec: number | null): void;
+  /**
+   * 每次权威状态广播（含连接期触发的开局广播——不会错过任何一份）。
+   * 第二参数为该回合剩余秒数（null = 不限时）；与 state.turnNumber 一同消费，
+   * 客户端据此按“回合”重置倒计时（同值不同回合必须重置——Bug1 根因）。
+   */
+  onState?(state: GameState, turnRemainingSec: number | null): void;
   /** 服务器拒绝（notCurrentPlayer / illegalAction / playerEliminated / roomClosed 等）。 */
   onRejected?(rejection: { code: string; reason: string }): void;
   /** 服务器权威淘汰（原因由服务器声明：timeout / noLegalAction / resign）。 */
@@ -135,44 +137,54 @@ export function connectWebSocketGameSession(
     webSocketFactory,
     onConnectionChange,
     onState,
-    onTurnRemainingSec,
     onRejected,
     onEliminated,
     onRoomStatus,
   } = options;
 
-  return new Promise<WebSocketGameSession>((resolve, reject) => {
+  // 令牌失效类拒绝：调用方（或下方内置回退）可以清除令牌后全新加入。
+  const tokenInvalid = (code: string) => code === 'invalidToken' || code === 'roomClosed';
+
+  const attemptConnect = (
+    connectToken: string | undefined,
+  ): Promise<WebSocketGameSession> =>
+  new Promise<WebSocketGameSession>((resolve, reject) => {
     let settled = false;
     let closed = false;
     let playerId: PlayerId | null = null;
-    let sessionToken = token ?? '';
+    let sessionToken = connectToken ?? '';
     let sessionRoomId = roomId ?? 'room-1';
     let latest: GameState | null = null;
     const listeners = new Set<(state: GameState) => void>();
 
     let ws: WsLike;
     try {
-      ws = (webSocketFactory ?? defaultWebSocketFactory)(buildUrl(url, roomId, token, mode, timerSec));
+      ws = (webSocketFactory ?? defaultWebSocketFactory)(
+        buildUrl(url, roomId, connectToken, mode, timerSec),
+      );
     } catch (err) {
       reject(err instanceof Error ? err : new Error(String(err)));
       return;
     }
 
-    const settleFailure = (error: Error) => {
+    let failureCode: string | null = null;
+    const settleFailure = (error: Error, code: string | null = null) => {
       if (settled) return;
       settled = true;
+      failureCode = code;
       clearTimeout(connectTimer);
       try {
         ws.close();
       } catch {
         // 忽略关闭异常
       }
-      reject(error);
+      reject(Object.assign(error, { code }));
     };
 
     const connectTimer = setTimeout(() => {
       settleFailure(new Error('连接超时'));
     }, connectTimeoutMs);
+    void failureCode; // 供断言/调试读取
 
     const settleSuccess = () => {
       if (settled || playerId === null) return;
@@ -229,13 +241,12 @@ export function connectWebSocketGameSession(
         case 'state':
           latest = message.state;
           // 连接级事件先于订阅者通知：任何状态广播（含连接期开局广播）都不遗漏。
-          onState?.(message.state);
-          onTurnRemainingSec?.(message.turnRemainingSec ?? null);
+          onState?.(message.state, message.turnRemainingSec ?? null);
           for (const listener of [...listeners]) listener(message.state);
           break;
         case 'rejected':
           if (!settled) {
-            settleFailure(new Error(`${message.code}: ${message.reason}`));
+            settleFailure(new Error(`${message.code}: ${message.reason}`), message.code);
           } else {
             onRejected?.({ code: message.code, reason: message.reason });
           }
@@ -257,5 +268,18 @@ export function connectWebSocketGameSession(
     ws.onerror = () => {
       // 错误细节不经协议传递；close 事件随后到达并完成失败结算。
     };
+  });
+
+  // 内置单次回退：带令牌连接遭遇“令牌失效/房间已结束”类拒绝时，清除令牌
+  // 以全新玩家重新加入（服务端对 finished 房间的显式 join = 全新对局）。
+  // 仅回退一次（连接期）；无令牌连接直接透出失败。
+  if (token === undefined) {
+    return attemptConnect(undefined);
+  }
+  return attemptConnect(token).catch((err: Error & { code?: string | null }) => {
+    if (err.code !== undefined && err.code !== null && tokenInvalid(err.code)) {
+      return attemptConnect(undefined);
+    }
+    throw err;
   });
 }

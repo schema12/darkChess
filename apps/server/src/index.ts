@@ -106,13 +106,15 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
     const roomId = params.get('room') ?? defaultRoomId;
     const modeKey = params.get('mode');
     const token = params.get('token');
-    // 计时策略：?timer=<秒>（房间创建时生效）；off/缺省 = 不限时。
+    // 计时策略：?timer=<秒>（房间创建时生效，显式声明优先）；缺省 = 不限时（或替换时继承旧房）。
     const timerParam = params.get('timer');
-    const timerSec = timerParam !== null && /^\d+$/.test(timerParam) ? Number(timerParam) : undefined;
-    const timerMs = timerSec !== undefined ? Math.min(600, Math.max(5, timerSec)) * 1000 : undefined;
+    const explicitTimerMs =
+      timerParam !== null && /^\d+$/.test(timerParam)
+        ? Math.min(600, Math.max(5, Number(timerParam))) * 1000
+        : undefined;
     // 连接生命周期内固定使用同一房间（模式/计时在入座时确定）。
     // rejoin 命中 finished 房间时会被替换，故用 let 让消息/断线处理器跟随新房间。
-    let room = roomFor(roomId, modeKey, timerMs);
+    let room = roomFor(roomId, modeKey, explicitTimerMs);
 
     const handle: RoomConnection = {
       send(message) {
@@ -158,8 +160,10 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
       if (!result.ok && room.getStatus() === 'finished') {
         // terminal Room 不阻塞新游戏：显式的新 join 以全新对局替换同名房间。
         // 旧对局的最终结果此前已广播送达；其旧 token 随旧座位一并失效。
+        // 计时策略继承旧房间（新连接显式声明 ?timer= 时优先）——Bug5 根因。
+        const inherited = room.timerPolicyMs();
         rooms.delete(`${modeKey ?? '__default__'}:${roomId}`);
-        room = roomFor(roomId, modeKey);
+        room = roomFor(roomId, modeKey, timerParam !== null ? explicitTimerMs : inherited);
         result = room.join(handle);
       }
       if (result.ok && result.playerId !== undefined) {

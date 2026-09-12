@@ -71,6 +71,8 @@ export interface GameController {
   toast: string | null;
   /** 当前回合剩余秒数（联机计时房；null = 不限时/本地模式）。显示用，权威在服务器。 */
   turnRemainingSec: number | null;
+  /** 本回合计时策略时长（秒）；非当前行动玩家卡片静态显示用。 */
+  turnPolicySec: number | null;
   clickCell: (x: number, y: number) => void;
   newGame: () => void;
   /** 联机信息（仅 online 模式有效）。 */
@@ -219,6 +221,7 @@ export function useLocalGame(createMode: () => GameMode): GameController {
     eliminationNotices: notices,
     toast,
     turnRemainingSec: null, // 本地不计时
+    turnPolicySec: null,
     clickCell,
     newGame,
     online: null,
@@ -310,6 +313,8 @@ export function useOnlineGame(
   );
   // 内部重连次数：reconnect() 递增以重建连接（复用最新令牌恢复原座位）。
   const [attempt, setAttempt] = useState(0);
+  // 令牌连接失败的“无令牌回退”只允许一次（防无限重试）。
+  const retryRef = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((text: string) => {
@@ -321,29 +326,29 @@ export function useOnlineGame(
     if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
 
-  // 回合倒计时（显示用）：以服务器广播的剩余秒数为基准，本地按 250ms 粒度递减，
-  // 每次权威广播重新同步（服务器仍是超时判定的唯一权威）。
-  const [remainingSec, setRemainingSec] = useState<number | null>(null);
-  const deadlineRef = useRef<number | null>(null);
-  const [displaySec, setDisplaySec] = useState<number | null>(null);
+  // 回合倒计时（显示用）：服务器为唯一权威，每条广播携带 (turnNumber, 剩余秒)。
+  // 重置条件 = 回合变化或秒数变化——相邻两回合同值（30→30）也必须重置（Bug1 根因）。
+  const [turnTimer, setTurnTimer] = useState<{
+    turn: number;
+    policySec: number;
+    deadline: number;
+  } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    if (remainingSec === null) {
-      deadlineRef.current = null;
-      setDisplaySec(null);
-      return;
-    }
-    deadlineRef.current = Date.now() + remainingSec * 1000;
-    const tick = () =>
-      setDisplaySec(Math.max(0, Math.ceil((deadlineRef.current! - Date.now()) / 1000)));
-    tick();
-    const iv = setInterval(tick, 250);
+    const iv = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(iv);
-  }, [remainingSec]);
+  }, []);
+  const turnRemainingSec =
+    turnTimer === null ? null : Math.max(0, Math.ceil((turnTimer.deadline - now) / 1000));
 
   useEffect(() => {
     if (!connection.url) {
-      // 空连接（NULL_CONNECTION）：回到空闲态。仅在非 idle 时更新（返回同一引用，
-      // 避免每次 effect 触发新的重渲染循环）。
+      // 空连接（NULL_CONNECTION）：回到空闲态并清除上一局残留视图状态
+      //（否则换模式/换房间时带着 stale state 自动进入旧对局——Bug3/4 根因）。
+      setState(null);
+      stateRef.current = null;
+      setNotices([]);
+      setTurnTimer(null);
       setOnline((info) =>
         info.status === 'idle'
           ? info
@@ -360,10 +365,13 @@ export function useOnlineGame(
     }
     let disposed = false;
     let session: WebSocketGameSession | null = null;
+    // 每条连接的令牌按 (url, mode, roomId) 重新解析——上一连接/上一模式的 token 不得复用。
+    tokenRef.current =
+      connection.token ?? loadStoredToken(connection.url, connection.mode, connection.roomId);
     setState(null);
     stateRef.current = null;
     setNotices([]);
-    setRemainingSec(null);
+    setTurnTimer(null);
     setOnline({
       status: 'connecting',
       playerId: '',
@@ -379,7 +387,7 @@ export function useOnlineGame(
       mode: connection.mode,
       timerSec: connection.timerSec,
       token: tokenRef.current,
-      onState: (next) => {
+      onState: (next, remaining) => {
         if (disposed) return;
         const prev = stateRef.current;
         if (prev !== null && prev !== next) {
@@ -398,11 +406,26 @@ export function useOnlineGame(
           // 对局已终局：重连凭证使命完成，立即清除，避免污染之后的新游戏流程。
           deleteStoredToken(connection.url, connection.mode, connection.roomId);
           tokenRef.current = undefined;
+          setTurnTimer(null);
+        } else if (remaining !== null) {
+          // 按回合重置倒计时：回合变化或秒数变化都触发（同值跨回合同样重置——Bug1）。
+          setTurnTimer((prevTimer) => {
+            if (
+              prevTimer !== null &&
+              prevTimer.turn === next.turnNumber &&
+              prevTimer.policySec === remaining
+            ) {
+              return prevTimer; // 同一回合内的重复广播：保持现基准
+            }
+            return {
+              turn: next.turnNumber,
+              policySec: remaining,
+              deadline: Date.now() + remaining * 1000,
+            };
+          });
+        } else {
+          setTurnTimer(null); // 不限时
         }
-      },
-      onTurnRemainingSec: (sec) => {
-        if (disposed) return;
-        setRemainingSec(sec); // null = 不限时
       },
       onConnectionChange: (status: ConnectionStatus) => {
         if (disposed) return;
@@ -450,10 +473,24 @@ export function useOnlineGame(
       })
       .catch((err: unknown) => {
         if (disposed) return;
+        const message = err instanceof Error ? err.message : String(err);
+        // 带令牌的连接失败（旧 token 已随终局/替换失效）→ 清除令牌并回退一次全新加入，
+        // 实现“旧房间重开”的无缝体验；回退仅一次，避免无限重试。
+        if (
+          tokenRef.current !== undefined &&
+          /invalidToken|roomClosed/.test(message) &&
+          !retryRef.current
+        ) {
+          retryRef.current = true;
+          deleteStoredToken(connection.url, connection.mode, connection.roomId);
+          tokenRef.current = undefined;
+          setAttempt((a) => a + 1);
+          return;
+        }
         setOnline((info) => ({
           ...info,
           status: 'closed',
-          lastError: err instanceof Error ? err.message : String(err),
+          lastError: message,
         }));
       });
 
@@ -462,7 +499,7 @@ export function useOnlineGame(
       session?.close();
       sessionRef.current = null;
     };
-  }, [connection.url, connection.roomId, attempt]);
+  }, [connection.url, connection.roomId, connection.mode, attempt]);
 
   // 座位门控：联机时本浏览器只操作自己的座位（多设备各管一座，行为与服务器
   // 权威校验一致）；本地热座无门控。未绑定身份（等待期）同样不亮子。
@@ -557,7 +594,9 @@ export function useOnlineGame(
     movablePieces,
     eliminationNotices: notices,
     toast,
-    turnRemainingSec: displaySec,
+    turnRemainingSec:
+      turnTimer !== null ? Math.max(0, Math.ceil((turnTimer.deadline - now) / 1000)) : null,
+    turnPolicySec: turnTimer?.policySec ?? null,
     clickCell,
     newGame: () => undefined, // 联机模式没有“新对局”（房间生命周期由服务器管理）
     online,

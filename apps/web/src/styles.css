@@ -150,664 +150,107 @@ body {
   background: rgba(255, 183, 77, 0.08);
 }
 
-/* —— 玩家状态面板（公开信息：座位 / 回合 / 阵营 / 淘汰） —— */
+/* —— 玩家状态卡片（对战 UI） —— */
 
 .player-panel {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
+  width: 100%;
+  max-width: 900px;
 }
 
-.player-card {
+.pcard {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  font-size: 13px;
-  color: #cbb88f;
+  gap: 10px;
+  padding: 8px 14px;
   border: 1px solid rgba(138, 109, 59, 0.5);
-  border-radius: 8px;
+  border-radius: 12px;
   background: rgba(232, 211, 171, 0.08);
+  color: #cbb88f;
+  min-width: 190px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.player-card.current {
-  color: #f5ecd6;
+.pcard.current {
   border-color: #ffb74d;
   background: rgba(255, 183, 77, 0.12);
-  box-shadow: 0 0 0 1px rgba(255, 183, 77, 0.35);
+  box-shadow: 0 0 0 1px rgba(255, 183, 77, 0.45), 0 0 18px rgba(255, 183, 77, 0.18);
+  color: #f5ecd6;
 }
 
-.player-card.eliminated {
+.pcard.out {
   opacity: 0.45;
+}
+
+.pcard.out .pcard-name {
   text-decoration: line-through;
 }
 
-.player-out {
-  color: #ff8a65;
-  font-weight: 600;
-}
-
-/* —— 横屏 / 小屏响应式：缩小棋盘格，面板换行，不遮挡棋盘 —— */
-
-@media (max-width: 720px), (max-height: 560px) {
-  .board {
-    --cell-size: min(11vw, 52px);
-  }
-
-  .app {
-    padding: 12px 8px 32px;
-    gap: 8px;
-  }
-
-  .app h1 {
-    font-size: 18px;
-  }
-
-  .hint {
-    display: none;
-  }
-}
-
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
+.pcard-avatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(20, 14, 8, 0.72);
-}
-
-.result-card {
-  min-width: 280px;
-  padding: 28px 32px;
-  text-align: center;
-  background: #f7ecd6;
-  color: #3a2d1c;
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
-}
-
-.result-card h2 {
-  margin: 0 0 12px;
-  font-size: 30px;
-}
-
-.result-card .reason {
-  margin: 0 0 20px;
-  font-size: 15px;
-  color: #6b5a3d;
-}
-
-.result-card button {
-  padding: 10px 22px;
-  font-size: 16px;
-  cursor: pointer;
-  border: 1px solid #8a6d3b;
-  border-radius: 8px;
-  background: #3a2d1c;
-  color: #f7ecd6;
-}
-
-.result-card button:hover {
-  background: #4c3a24;
-}
-
-/* —— 联机大厅 / 等待 / 断线卡片 —— */
-
-.lobby-card {
-  min-width: 300px;
-  max-width: 420px;
-  padding: 20px 26px;
-  text-align: center;
-  background: #f7ecd6;
-  color: #3a2d1c;
-  border-radius: 12px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
-}
-
-.lobby-card h2 {
-  margin: 0 0 10px;
-  font-size: 22px;
-}
-
-.lobby-hint {
-  margin: 6px 0;
-  font-size: 13px;
-  color: #6b5a3d;
-}
-
-.lobby-error {
-  margin: 8px 0;
-  font-size: 13px;
-  color: #c62828;
-  font-weight: 600;
-}
-
-.lobby-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 10px 0;
-  text-align: left;
-  font-size: 13px;
-  color: #6b5a3d;
-}
-
-.lobby-field input {
-  padding: 8px 10px;
-  font-size: 14px;
-  border: 1px solid #8a6d3b;
-  border-radius: 6px;
-  background: #fffdf6;
-  color: #3a2d1c;
-}
-
-.lobby-actions {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 14px;
-}
-
-.lobby-actions button {
-  padding: 8px 18px;
-  font-size: 14px;
-  cursor: pointer;
-  border: 1px solid #8a6d3b;
-  border-radius: 8px;
-  background: #3a2d1c;
-  color: #f7ecd6;
-}
-
-.lobby-actions button.secondary {
-  background: transparent;
-  color: #6b5a3d;
-}
-
-.lobby-actions button:hover {
-  filter: brightness(1.12);
-}
-
-.lobby-actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* ============ UI 信息架构落地（Phase 1–4） ============ */
-
-/* —— 壳页面与底部导航 —— */
-
-.app.shell {
-  padding-bottom: 76px; /* 为底部导航留出空间 */
-}
-
-.page {
-  width: 100%;
-  max-width: 640px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.page-title {
-  margin: 0;
-  font-size: 22px;
-}
-
-.page-hint {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #cbb88f;
-}
-
-.page-hint.ok {
-  color: #9ccc65;
-}
-
-.page-hint.error {
-  color: #ff8a65;
-  font-weight: 600;
-}
-
-.bottom-nav {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-  background: rgba(26, 19, 12, 0.96);
-  border-top: 1px solid rgba(138, 109, 59, 0.4);
-  z-index: 20;
-}
-
-.nav-item {
-  flex: 1;
-  max-width: 160px;
-  padding: 10px 0;
-  font-size: 15px;
-  cursor: pointer;
-  border: 1px solid rgba(138, 109, 59, 0.5);
-  border-radius: 8px;
-  background: transparent;
-  color: #cbb88f;
-}
-
-.nav-item.active {
-  background: #e8d3ab;
-  color: #3a2d1c;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  font-size: 18px;
   font-weight: 700;
-}
-
-/* —— 入口卡片（首页/联机） —— */
-
-.home-group h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: #cbb88f;
-  font-weight: 600;
-}
-
-.entry-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.entry-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 16px;
-  text-align: left;
-  cursor: pointer;
-  border: 1px solid rgba(138, 109, 59, 0.6);
-  border-radius: 12px;
-  background: rgba(232, 211, 171, 0.08);
+  border-radius: 50%;
+  background: rgba(138, 109, 59, 0.35);
   color: #f5ecd6;
 }
 
-.entry-card.wide,
-.entry-card.return {
-  grid-column: 1 / -1;
-}
-
-.entry-card:hover:not(:disabled) {
-  background: rgba(232, 211, 171, 0.16);
-}
-
-.entry-card.disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.entry-title {
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.entry-desc {
-  font-size: 12.5px;
-  color: #cbb88f;
-}
-
-.placeholder-box {
-  padding: 22px;
-  font-size: 13px;
-  color: #8c7b63;
-  text-align: center;
-  border: 1px dashed rgba(167, 158, 141, 0.5);
-  border-radius: 10px;
-}
-
-/* —— 房间页 / 设置页 —— */
-
-.room-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-  max-width: 460px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: #cbb88f;
-}
-
-.field input,
-.inline-edit input {
-  padding: 10px 12px;
-  font-size: 14px;
-  border: 1px solid #8a6d3b;
-  border-radius: 8px;
-  background: #fffdf6;
-  color: #3a2d1c;
-}
-
-.primary-btn {
-  padding: 12px;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  border: none;
-  border-radius: 8px;
-  background: #e8930c;
+.pcard.current .pcard-avatar {
+  background: #ffb74d;
   color: #2b2118;
 }
 
-.primary-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.secondary-btn {
-  padding: 10px;
-  font-size: 13px;
-  cursor: pointer;
-  border: 1px solid #8a6d3b;
-  border-radius: 8px;
-  background: transparent;
-  color: #cbb88f;
-}
-
-.seat-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.pcard-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 1px;
+  min-width: 0;
 }
 
-.seat {
-  padding: 10px 12px;
+.pcard-name {
   font-size: 14px;
-  border-radius: 8px;
+  font-weight: 700;
 }
 
-.seat .dot {
-  margin-right: 8px;
-}
-
-.seat.on {
-  color: #f5ecd6;
-  background: rgba(232, 211, 171, 0.12);
-  border: 1px solid rgba(138, 109, 59, 0.6);
-}
-
-.seat.off {
-  color: #8c7b63;
-  border: 1px dashed rgba(167, 158, 141, 0.5);
-}
-
-.settings-group h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: #cbb88f;
-  font-weight: 600;
-}
-
-.settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 0;
-  font-size: 14px;
-  border-bottom: 1px solid rgba(138, 109, 59, 0.25);
-}
-
-.settings-row.disabled {
-  opacity: 0.45;
-}
-
-.settings-row.column {
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.inline-edit {
-  display: flex;
-  gap: 8px;
-}
-
-.inline-edit input {
-  flex: 1;
-}
-
-.placeholder-tag {
+.pcard-faction {
   font-size: 12px;
-  color: #8c7b63;
-  border: 1px dashed rgba(167, 158, 141, 0.5);
-  border-radius: 6px;
-  padding: 2px 10px;
-}
-
-.toggle {
-  width: 56px;
-  padding: 6px 0;
-  font-size: 13px;
-  cursor: pointer;
-  border: 1px solid #8a6d3b;
-  border-radius: 14px;
-  background: transparent;
   color: #cbb88f;
 }
 
-.toggle.on {
-  background: #e8d3ab;
-  color: #3a2d1c;
-  font-weight: 700;
-}
-
-/* —— GamePage：沉浸式（无底部导航） —— */
-
-.app.immersive {
-  padding: 12px 16px 24px;
-}
-
-.game-screen {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-
-.game-header {
-  width: 100%;
-  max-width: 900px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.gh-back {
-  padding: 6px 12px;
-  font-size: 13px;
-  cursor: pointer;
-  border: 1px solid rgba(138, 109, 59, 0.6);
-  border-radius: 8px;
-  background: transparent;
-  color: #cbb88f;
-}
-
-.gh-title {
-  flex: 1;
-  font-size: 15px;
-  font-weight: 700;
-  text-align: center;
-}
-
-.gh-conn {
-  font-size: 12.5px;
-  color: #9ccc65;
-}
-
-.gh-conn.closed {
-  color: #ff8a65;
-}
-
-.gh-conn.connecting,
-.gh-conn.open {
-  color: #ffb74d;
-}
-
-.gh-settings {
-  padding: 4px 10px;
-  font-size: 16px;
-  cursor: pointer;
-  border: 1px solid rgba(138, 109, 59, 0.6);
-  border-radius: 8px;
-  background: transparent;
-  color: #cbb88f;
-}
-
-/* —— GameStatus 区 —— */
-
-.game-status {
-  width: 100%;
-  max-width: 900px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 14px;
-  border: 1px solid rgba(138, 109, 59, 0.4);
-  border-radius: 10px;
-  background: rgba(232, 211, 171, 0.06);
-}
-
-.gs-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.gs-turn {
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.gs-faction {
-  font-size: 13px;
-  font-weight: 400;
-  color: #cbb88f;
-}
-
-.gs-meta {
-  font-size: 13px;
-  color: #cbb88f;
-}
-
-.gs-hint {
-  font-size: 13px;
-  color: #ffb74d;
-}
-
-/* —— Toast —— */
-
-.toast-host {
-  position: fixed;
-  top: 14px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  z-index: 30;
-  pointer-events: none;
-}
-
-.toast {
-  padding: 8px 18px;
-  font-size: 13.5px;
+.pcard-status {
+  font-size: 12px;
   font-weight: 600;
-  color: #2b2118;
-  background: rgba(255, 183, 77, 0.94);
-  border-radius: 18px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
 }
 
-.result-actions {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
+.pcard.current .pcard-status {
+  color: #ffb74d;
 }
 
-.result-actions button.secondary {
-  background: transparent;
-  color: #6b5a3d;
-  border: 1px solid #8a6d3b;
-}
-
-/* —— 移动端：横屏棋盘优先 —— */
-
-@media (max-width: 720px), (max-height: 560px) {
-  .entry-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .game-status {
-    padding: 6px 10px;
-  }
-
-  .gs-turn {
-    font-size: 15px;
-  }
-
-  .hint {
-    display: none;
-  }
-}
-
-/* —— 淘汰玩家：继续观战 / 退出 —— */
-
-.eliminated-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  max-width: 900px;
-  padding: 10px 16px;
-  border: 1px solid rgba(255, 138, 101, 0.5);
-  border-radius: 10px;
-  background: rgba(255, 138, 101, 0.08);
-}
-
-.ec-title {
-  font-size: 14px;
+.pcard-timer {
+  margin-left: auto;
+  font-size: 18px;
   font-weight: 700;
-  color: #ff8a65;
+  font-variant-numeric: tabular-nums;
+  color: #f5ecd6;
 }
 
-.ec-actions {
-  display: flex;
-  gap: 8px;
+.pcard-timer.urgent {
+  color: #ff5252;
+  animation: timer-pulse 1s infinite;
 }
 
-.ec-actions button {
-  padding: 6px 14px;
-  font-size: 13px;
-  cursor: pointer;
-  border: 1px solid #8a6d3b;
-  border-radius: 8px;
-  background: #e8d3ab;
-  color: #3a2d1c;
-}
-
-.ec-actions button.secondary {
-  background: transparent;
-  color: #cbb88f;
+@keyframes timer-pulse {
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .spectate-badge {
@@ -820,17 +263,6 @@ body {
   border-radius: 8px;
 }
 
-.gs-timer {
-  margin-right: 10px;
-  font-weight: 700;
-  color: #ffb74d;
-  font-variant-numeric: tabular-nums;
-}
-
-.gs-timer.urgent {
-  color: #ff5252;
-  animation: pulse 1s infinite;
-}
 
 @keyframes pulse {
   50% {

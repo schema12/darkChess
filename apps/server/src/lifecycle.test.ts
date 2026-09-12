@@ -103,16 +103,22 @@ describe('Stage 8：reconnect token / Room 生命周期', () => {
     expect(fresh.getState()).toBeNull(); // 新房间等待中
     expect(server_roomStatus('lc-term')).toBe('waiting');
 
-    // 旧 terminal token 重新连接：旧座位已随房间替换失效 → invalidToken（不复活旧局）。
-    await expect(
-      connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-term', mode: '2p', token: oldToken }),
-    ).rejects.toThrow(/invalidToken/);
+    // 旧 terminal token 重新连接：内置单次回退 → 以全新身份进入新房间（不复活旧局）。
+    // fresh 仍占座（waiting），revived 加入即满员开局 → 断言“新对局从第 0 手开始”。
+    const revived = await connectWebSocketGameSession({
+      url: `ws://localhost:${serverPort}`, roomId: 'lc-term', mode: '2p', token: oldToken,
+    });
+    expect(revived.playerId).toBe('B'); // 全新身份，而非旧 token 的 A 座位复活
+    await until(() => revived.getState() !== null, 2000);
+    expect(revived.getState()!.turnNumber).toBe(0); // 全新对局
+    expect(revived.getState()!.status.kind).toBe('inProgress'); // 绝非旧终局
+    revived.close();
 
     fresh.close();
   });
 
   it('3P terminal token 不能恢复进 2P 流程（跨模式隔离）', async () => {
-    await startServer({
+    const server = await startServer({
       mode: mode3p, seatIds: ['A', 'B', 'C'], seed: 5, roomId: 'lc-iso',
       extraModes: [{ key: '2p', mode: mode2p, seatIds: ['A', 'B'] }],
       turnTimeoutMs: 60,
@@ -122,15 +128,15 @@ describe('Stage 8：reconnect token / Room 生命周期', () => {
     const token3p = p3a.token;
     p3a.close();
 
-    // 带旧 3P token 从 2P 模式进入：桥接只在 2P 房间中查找 → 无法恢复 3P 座位。
-    await expect(
-      connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-iso', mode: '2p', token: token3p }),
-    ).rejects.toThrow(/invalidToken/);
-
-    // 2P 模式正常可用：同名房间 2P join 不受 3P token 污染。
-    const p2 = await connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-iso', mode: '2p' });
-    expect(p2.playerId).toBe('A');
-    p2.close();
+    // 带旧 3P token 从 2P 模式进入：模式隔离令其失效 → 内置回退以全新 2P 身份加入
+    //（绝不恢复 3P 座位/棋局）。
+    const via2p = await connectWebSocketGameSession({
+      url: `ws://localhost:${serverPort}`, roomId: 'lc-iso', mode: '2p', token: token3p,
+    });
+    expect(via2p.getState()).toBeNull(); // 2P 全新 waiting；绝无 3P 棋局
+    const room2p = server.getRoom('lc-iso', '2p')!;
+    expect(room2p.playersInfo().every((p) => p.factionId === null)).toBe(true);
+    via2p.close();
   });
 
   it('2P terminal token 不能恢复进 3P 流程（跨模式隔离对称）', async () => {
@@ -143,9 +149,11 @@ describe('Stage 8：reconnect token / Room 生命周期', () => {
     const token2p = a.token;
     a.close();
 
-    await expect(
-      connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-iso2', mode: '3p', token: token2p }),
-    ).rejects.toThrow(/invalidToken/);
+    const via3p = await connectWebSocketGameSession({
+      url: `ws://localhost:${serverPort}`, roomId: 'lc-iso2', mode: '3p', token: token2p,
+    });
+    expect(via3p.getState()).toBeNull(); // 3P 全新 waiting；绝无 2P 棋局
+    via3p.close();
   });
 
   it('失败方/获胜方重新开始：terminal 后各自加入新房间均正常', async () => {
@@ -211,6 +219,68 @@ describe('Stage 8：reconnect token / Room 生命周期', () => {
       await new Promise((r) => setTimeout(r, 80));
     }
   }, 60000);
+
+  it('terminal 房间旧 token rejoin 被拒；客户端回退后进入全新房间（Bug2 完整链路）', async () => {
+    const server = await startServer({
+      mode: mode2p, seatIds: ['A', 'B'], seed: 10, roomId: 'lc-fallback',
+      extraModes: [], turnTimeoutMs: 60,
+    });
+    // 离线期间对局结束（超时判负）→ 本机仍存有旧 token。
+    const a = await connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-fallback', mode: '2p' });
+    const b = await connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-fallback', mode: '2p' });
+    await new Promise((r) => setTimeout(r, 250));
+    expect(a.getState()!.status.kind).toBe('won');
+    const staleToken = a.token;
+    a.close();
+    b.close();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 服务端直接 rejoin 旧 token：必须被拒（roomClosed），不得恢复旧局。
+    const roomObj = server.getRoom('lc-fallback', '2p')!;
+    const fake = { send: () => undefined, close: () => undefined };
+    expect(roomObj.rejoin(staleToken, fake).ok).toBe(false);
+
+    // 客户端流程：带旧 token 连接 → 回退为全新加入 → 进入全新 waiting 房间（非旧终局）。
+    const fallback = await connectWebSocketGameSession({
+      url: `ws://localhost:${serverPort}`, roomId: 'lc-fallback', mode: '2p', token: staleToken,
+    });
+    expect(fallback.playerId).toBe('A');
+    expect(fallback.getState()).toBeNull(); // 全新房间等待中
+    fallback.close();
+  });
+
+  it('替换房间继承计时策略（Bug5：重开后 timer 不消失）', async () => {
+    const server = await startServer({
+      mode: mode2p, seatIds: ['A', 'B'], seed: 11, roomId: 'lc-inherit',
+      extraModes: [], turnTimeoutMs: 60,
+    });
+    // 旧局：创建时声明 90s 计时 → 用权威 forfeit 快速制造终局（房间进入 finished）。
+    const a = await connectWebSocketGameSession({
+      url: `ws://localhost:${serverPort}`, roomId: 'lc-inherit', mode: '2p', timerSec: 90,
+    });
+    const b = await connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-inherit', mode: '2p' });
+    await new Promise((r) => setTimeout(r, 250));
+    server.getRoom('lc-inherit', '2p')!.forfeit('A', 'timeout');
+    await until(() => a.getState()?.status.kind === 'won', 2000);
+    a.close();
+    b.close();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 重开：全新 join 替换 finished 房间 → 继承 ?timer=90 的策略（第二人加入后开局广播剩余 ≤90）。
+    const seen: Array<number | null> = [];
+    const x = await connectWebSocketGameSession({
+      url: `ws://localhost:${serverPort}`, roomId: 'lc-inherit', mode: '2p',
+      onState: (_st, rem) => seen.push(rem),
+    });
+    expect(x.getState()).toBeNull(); // 全新 waiting
+    const y = await connectWebSocketGameSession({ url: `ws://localhost:${serverPort}`, roomId: 'lc-inherit', mode: '2p' });
+    await until(() => seen.length > 0 && seen[seen.length - 1] !== null, 3000);
+    const rem = seen[seen.length - 1]!;
+    expect(rem).toBeLessThanOrEqual(90);
+    expect(rem).toBeGreaterThan(80); // 策略 90s 被继承，而非不限时（null）或 60ms
+    x.close();
+    y.close();
+  });
 
   it('3P reconnect 回归（进行中断线恢复）', async () => {
     await startServer({ mode: mode3p, seatIds: ['A', 'B', 'C'], seed: 9, roomId: 'lc-3p' });
