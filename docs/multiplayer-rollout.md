@@ -514,3 +514,51 @@ TTL 回收 · 对局房不误伤。
 
 浏览器级测试：PENDING（同 v1.0.1 结论，建议 v2 引入）。物理 LAN 验收：PENDING MANUAL。
 全量回归：core 86/86 · server **58/58**（+11）· web typecheck/build ✅ · 零进程残留。
+
+---
+
+# v1.0.2.1：联机实测修复（淘汰语义互斥 / Timer 残留 / 胜利文案 / LAN 诊断）
+
+## Stage 1-2 根因与修复：timeout + noLegalAction 同时出现（P0）
+
+**根因**：联机客户端存在两个淘汰通知来源——服务器 `eliminated` 消息（reason=timeout，先到）
++ `onState` 中从本地模式遗留的状态差分合成（reason 恒为 noLegalAction，后到）→ 同一玩家两条通知。
+服务端每玩家只广播一条 eliminated（已验证）。**修复**：联机模式淘汰原因唯一来源 =
+服务器 eliminated 消息（语义层删除差分合成，非隐藏文案）；本地热座保留差分（无事件通道）。
+另补服务端语义：forfeit 链式僵局淘汰的他人原因修正为 noLegalAction（直接目标用触发原因）。
+
+## Stage 3-4：turn 切换 Timer 残留（P0-2）
+
+- 结构性保证（已核实）：PlayerCard 计时按玩家绑定——仅当前行动者读实时倒计时，
+  其余玩家显示策略满额，**B 结构上不可能显示 00:00**。
+- 实测中 B 短暂 00:00 的可见残留 = 本地倒计时归零后、权威广播（偶发延迟）到达前，
+  旧当前卡以红色脉动显示 00:00——脉动语义错误（那是“等待权威结算”的过渡态）。
+  **修复**：danger 脉动仅属于 1–10s 真实倒计时；00:00 过渡态不闪烁；
+  权威广播到达后 (turnNumber, remaining) 原子重置为新回合满额。
+
+## Stage 5：Game Over 边界
+
+服务端 last-active 仅在活跃玩家=1 时判胜（3P 单人淘汰 → inProgress 继续）；web Overlay
+仅在 status 终局时渲染。回归测试 Case 6/7 覆盖（A 淘汰不弹 Overlay；A/B 相继淘汰后
+C 获胜才终局）。未发现提前弹 Overlay 的代码路径。
+
+## Stage 6 胜利文案
+
+双人/三人胜利按**真实结束原因**：`玩家A操作超时，你获胜` / `玩家A已退出，你获胜` /
+`玩家A无合法行动，你获胜`（取自淘汰事件流最后一条对手通知；3P 追加辅助说明
+“你是最后存活的玩家”）；无通知时回退 `对手已被淘汰，你获胜`；不再以
+“你是最后一名未淘汰玩家”作为主文案。被淘汰查看者仍显示“已淘汰 + 本局获胜者”。
+
+## Stage 8 LAN 延迟诊断
+
+- Web（仅 DEV 构建）：submit 记录 (t, turn)；收到新 turn 权威 state 时输出
+  `[diag] state turn=N rtt=Xms remaining=Y`。
+- Server（DARKCHESS_DEBUG=1 启用）：`[diag] recv/applied/forfeit t=... room=... player=... turn=...`。
+- 下次复现 1-2s 延迟时：对比同一 turn 的 server recv/applied 时间戳与客户端 rtt——
+  即可定位延迟在 submit→server（rtt 大且 recv 晚）、server 处理（recv→applied 间隔）、
+  还是 broadcast→client 渲染（applied 早但 rtt 晚）。本轮不做网络层任何重构。
+
+## Stage 9-11 结果
+
+core 86/86 · server **62/62**（+4 语义互斥回归）· web typecheck/build ✅ · 零进程残留。
+Browser-level / Physical LAN：PENDING MANUAL（同前）。

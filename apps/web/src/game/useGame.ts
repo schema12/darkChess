@@ -318,6 +318,9 @@ export function useOnlineGame(
   const [attempt, setAttempt] = useState(0);
   // 令牌连接失败的“无令牌回退”只允许一次（防无限重试）。
   const retryRef = useRef(false);
+  // LAN 延迟诊断（仅 DEV 构建）：submit → 收到权威 state 的往返时延 + turn 对齐。
+  const dev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
+  const diagRef = useRef<{ submitAt: number; turn: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((text: string) => {
@@ -394,16 +397,13 @@ export function useOnlineGame(
       token: tokenRef.current,
       onState: (next, remaining) => {
         if (disposed) return;
-        const prev = stateRef.current;
-        if (prev !== null && prev !== next) {
-          const fresh: EliminationNotice[] = [];
-          for (const p of next.players) {
-            const before = prev.players.find((q) => q.id === p.id);
-            if (p.eliminated === true && before?.eliminated !== true) {
-              fresh.push({ playerId: p.id, reason: 'noLegalAction' });
-            }
-          }
-          if (fresh.length > 0) setNotices((list) => [...list, ...fresh]);
+        // 联机模式淘汰原因唯一来源 = 服务器 eliminated 消息（携带权威 reason，先于 state 到达）。
+        // 此处严禁从 state 差分合成 noLegalAction——否则 timeout 玩家会多出一条原因重复的通知（P0）。
+        if (dev && diagRef.current !== null && next.turnNumber > diagRef.current.turn) {
+          console.debug(
+            `[diag] state turn=${next.turnNumber} rtt=${Date.now() - diagRef.current.submitAt}ms remaining=${String(remaining)}`,
+          );
+          diagRef.current = null;
         }
         stateRef.current = next;
         setState(next);
@@ -525,9 +525,13 @@ export function useOnlineGame(
     }
     // 服务器以连接绑定身份处理指令；信封 playerId 仅接口兼容。
     session.submit({ playerId: current.currentPlayerId, action });
+    if (dev) {
+      diagRef.current = { submitAt: Date.now(), turn: current.turnNumber };
+      console.debug(`[diag] submit turn=${current.turnNumber} player=${current.currentPlayerId} t=${Date.now()}`);
+    }
     const wasCapture = action.kind === 'move' && pieceAt(current.board, action.to) !== null;
     soundManager.play(action.kind === 'reveal' ? 'reveal' : wasCapture ? 'capture' : 'move');
-  }, [showToast]);
+  }, [showToast, dev]);
 
   const { revealTargets, movablePieces, moveByFrom } = useMemo(() => {
     const reveal = new Set<string>();

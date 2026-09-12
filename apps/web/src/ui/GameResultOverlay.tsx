@@ -18,6 +18,14 @@ function winReason(game: ReadyGameController, winner: FactionId): string {
 }
 
 /** 获胜者描述：优先玩家（含阵营），否则阵营。 */
+/** 淘汰通知 → 人话短语（用于胜利文案描述对手的结束原因）。 */
+function eliminationPhrase(playerId: string, reason: 'noLegalAction' | 'timeout' | 'resign'): string {
+  const who = `玩家${playerId}`;
+  if (reason === 'timeout') return `${who}操作超时`;
+  if (reason === 'resign') return `${who}已退出`;
+  return `${who}无合法行动`;
+}
+
 function winnerLabel(game: ReadyGameController, status: { winner: FactionId | null; winnerPlayerId?: string }): string {
   if (status.winnerPlayerId !== undefined) {
     const faction = status.winner !== null ? factionName(game, status.winner) : null;
@@ -59,10 +67,18 @@ export function GameResultOverlay({
     if (viewer !== null) {
       if (viewerWon) {
         title = '胜利';
-        reason =
-          state.status.winner !== null
-            ? `获胜阵营：${factionName(game, state.status.winner)}`
-            : '你是最后一名未淘汰玩家';
+        // 以真实结束原因描述胜利：取最后一条对手淘汰通知（timeout/退出/无合法行动）。
+        const finalElim = [...game.eliminationNotices]
+          .reverse()
+          .find((n) => n.playerId !== viewer.id);
+        if (finalElim) {
+          reason = `${eliminationPhrase(finalElim.playerId, finalElim.reason)}，你获胜`;
+          if (state.players.length > 2) reason += '（你是最后存活的玩家）';
+        } else if (state.status.winner !== null) {
+          reason = `获胜阵营：${factionName(game, state.status.winner)}`;
+        } else {
+          reason = '你是最后一名未淘汰玩家';
+        }
       } else if (viewerOut) {
         // 已淘汰玩家：不显示为普通“失败”。
         title = '已淘汰';

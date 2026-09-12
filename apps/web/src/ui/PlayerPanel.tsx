@@ -27,7 +27,9 @@ export function PlayerPanel({ game }: { game: ReadyGameController }) {
         const out = p.eliminated === true;
         // 倒计时绑定玩家：当前行动者显示实时剩余，其余玩家显示满额（时钟未走）。
         const timerSec = isCurrent ? turnRemainingSec : turnPolicySec;
-        const danger = isCurrent && timerSec !== null && timerSec <= 10;
+        // 危险脉动仅属于真实倒计时（1-10s）；本地归零后、权威结算到达前的 00:00
+        // 是过渡态，不闪烁——新回合的计时由权威广播原子重置，绝不继承旧 00:00。
+        const danger = isCurrent && timerSec !== null && timerSec <= 10 && timerSec > 0;
         const status = out
           ? '已淘汰'
           : isCurrent

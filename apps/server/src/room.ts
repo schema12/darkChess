@@ -84,6 +84,8 @@ export interface GameRoom {
 export function createGameRoom(config: GameRoomConfig): GameRoom {
   const engine: GameEngine = createEngine(config.mode);
   const seats = new Map<PlayerId, Seat>();
+  // LAN 延迟诊断（DARKCHESS_DEBUG=1 时启用）：receive → apply → broadcast 时间戳。
+  const debug = process.env.DARKCHESS_DEBUG === '1';
   let status: RoomStatus = 'waiting';
   let state: GameState | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -178,13 +180,25 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
     broadcastRoomStatus();
   }
 
-  /** 广播结算后新出现的淘汰（原因由触发方声明：超时/认输/无合法行动）。 */
-  function announceEliminations(previous: GameState, reason: EliminationReason): void {
+  /**
+   * 广播结算后新出现的淘汰。
+   * `directPlayerId` = 本次触发的直接受害者（forfeit 的目标 / 僵局判负的当前玩家），
+   * 使用触发方声明的原因；结算链中连带僵局淘汰的其他玩家原因恒为 noLegalAction。
+   */
+  function announceEliminations(
+    previous: GameState,
+    reason: EliminationReason,
+    directPlayerId?: PlayerId,
+  ): void {
     if (!state) return;
     for (const player of state.players) {
       const before = previous.players.find((q) => q.id === player.id);
       if (player.eliminated === true && before?.eliminated !== true) {
-        broadcast({ type: 'eliminated', playerId: player.id, reason });
+        const playerReason =
+          directPlayerId !== undefined && player.id !== directPlayerId
+            ? ('noLegalAction' as EliminationReason)
+            : reason;
+        broadcast({ type: 'eliminated', playerId: player.id, reason: playerReason });
       }
     }
   }
@@ -199,7 +213,8 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       return false; // 已淘汰/未知玩家等：权威引擎拒绝，房间状态不变
     }
     state = next;
-    announceEliminations(previous, reason);
+    if (debug) console.log(`[diag] forfeit t=${Date.now()} room=${config.roomId} player=${playerId} reason=${reason}`);
+    announceEliminations(previous, reason, playerId);
     if (state.status.kind === 'inProgress') {
       armTimer(); // 先重置计时，广播携带新回合的剩余时间
       broadcast(stateMessage(state));
@@ -340,8 +355,10 @@ export function createGameRoom(config: GameRoomConfig): GameRoom {
       seat.connection?.send({ type: 'rejected', code: check.code, reason: check.reason });
       return;
     }
+    if (debug) console.log(`[diag] recv t=${Date.now()} room=${config.roomId} player=${playerId} turn=${state.turnNumber}`);
     const previous = state;
     state = engine.apply(state, action);
+    if (debug) console.log(`[diag] applied t=${Date.now()} turn=${state.turnNumber}`);
     announceEliminations(previous, 'noLegalAction');
     if (state.status.kind === 'inProgress') {
       armTimer(); // 先重置计时，广播携带新回合的剩余时间
