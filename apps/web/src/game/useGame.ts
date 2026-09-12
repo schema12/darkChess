@@ -353,6 +353,7 @@ export function useOnlineGame(
   const [pendingDrawFrom, setPendingDrawFrom] = useState<string | null>(null);
   const onDrawOfferRef = useRef<(e: { fromPlayerId: string; count: number; max: number }) => void>(() => undefined);
   const onDrawResponseRef = useRef<(e: { fromPlayerId: string; accept: boolean }) => void>(() => undefined);
+  const onSendFailRef = useRef<(label: string) => void>(() => undefined);
   // LAN 延迟诊断（仅 DEV 构建）：submit → 收到权威 state 的往返时延 + turn 对齐。
   const dev = (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV ?? false;
   const diagRef = useRef<{ submitAt: number; turn: number } | null>(null);
@@ -382,6 +383,11 @@ export function useOnlineGame(
       setPendingDrawFrom(null);
       showToast(`玩家${event.fromPlayerId}${event.accept ? '同意和棋' : '拒绝和棋'}`);
     }
+  };
+  onSendFailRef.current = (label) => {
+    // 静默吞掉指令是“点击无反应”的来源之一：socket 未就绪时必须可见。
+    showToast('连接未就绪，请稍后重试');
+    console.debug(`[diag] send failed: ${label} (socket not open)`);
   };
 
   // 回合倒计时（显示用）：服务器为唯一权威，每条广播携带 (turnNumber, 剩余秒)。
@@ -465,6 +471,7 @@ export function useOnlineGame(
       token: tokenRef.current,
       onDrawOffer: (event) => onDrawOfferRef.current(event),
       onDrawResponse: (event) => onDrawResponseRef.current(event),
+      onSendFail: (label) => onSendFailRef.current(label),
       onState: (next, remaining) => {
         if (disposed) return;
         // 联机模式淘汰原因唯一来源 = 服务器 eliminated 消息（携带权威 reason，先于 state 到达）。
@@ -686,10 +693,21 @@ export function useOnlineGame(
     myDrawCount,
     pendingDrawFrom,
     rematchReady: online.rematchReady,
-    resign: useCallback(() => sessionRef.current?.resign(), []),
-    drawOffer: useCallback(() => sessionRef.current?.drawOffer(), []),
-    drawResponse: useCallback((accept: boolean) => sessionRef.current?.drawResponse(accept), []),
-    rematchReadyAction: useCallback(() => sessionRef.current?.rematchReady(), []),
+    resign: useCallback(() => {
+      if (dev) console.debug('[diag] resign click');
+      if (sessionRef.current?.resign() === false) showToast('连接未就绪，请稍后重试');
+    }, [showToast, dev]),
+    drawOffer: useCallback(() => {
+      if (dev) console.debug('[diag] drawOffer click');
+      if (sessionRef.current?.drawOffer() === false) showToast('连接未就绪，请稍后重试');
+    }, [showToast, dev]),
+    drawResponse: useCallback((accept: boolean) => {
+      if (sessionRef.current?.drawResponse(accept) === false) showToast('连接未就绪，请稍后重试');
+    }, []),
+    rematchReadyAction: useCallback(() => {
+      if (dev) console.debug('[diag] rematch click');
+      if (sessionRef.current?.rematchReady() === false) showToast('连接未就绪，请稍后重试');
+    }, [dev]),
     clickCell,
     newGame: () => undefined, // 联机模式没有“新对局”（房间生命周期由服务器管理）
     online,

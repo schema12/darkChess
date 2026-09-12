@@ -259,6 +259,40 @@ describe('v1.0.3：再来一局（rematch ready）', () => {
     b.close();
   });
 
+  it('客户端入口链路：rematch ready 经 session 入口真实发送并被服务器接受（Bug2 回归）', async () => {
+    const server = await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 9, roomId: 'rm-entry' });
+    const a = await join('rm-entry', '2p');
+    const b = await join('rm-entry', '2p');
+    await untilStarted(a, b);
+    a.resign();
+    await until(() => a.getState()?.status.kind === 'won', 3000);
+
+    // 浏览器按钮同链路：session.rematchReady()（此前断点曾在“UI→session”之间）
+    a.rematchReady();
+    await until(() => server.getRoom('rm-entry', '2p')!.rematchReadyPlayers().includes('A'), 2000);
+    b.rematchReady();
+    await until(() => a.getState()?.turnNumber === 0, 3000);
+    expect(a.getState()!.turnNumber).toBe(0);
+    a.close();
+    b.close();
+  });
+
+  it('客户端入口链路：drawOffer 经 session 入口真实发送并被广播（Bug3 回归）', async () => {
+    await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 10, roomId: 'dr-entry' });
+    const a = await join('dr-entry', '2p');
+    const b = await join('dr-entry', '2p');
+    await untilStarted(a, b);
+
+    a.drawOffer();
+    await until(() => b.drawOffers.length === 1, 2000);
+    expect(b.drawOffers[0]).toMatchObject({ fromPlayerId: 'A', count: 1, max: 3 });
+    b.drawResponse(true);
+    await until(() => a.getState()?.status.kind === 'drawn', 3000);
+    expect(a.getState()!.status).toEqual({ kind: 'drawn', reason: { kind: 'agreement' } });
+    a.close();
+    b.close();
+  });
+
   it('rematch 准备期间不可发起求和/认输（旧局已 terminal）', async () => {
     await startServer({ mode: mode2p, seatIds: ['A', 'B'], seed: 8, roomId: 'rm-2' });
     const a = await join('rm-2', '2p');

@@ -78,10 +78,15 @@ export function GameResultOverlay({
   const iAmReady = viewerId !== undefined && readyList.includes(viewerId);
 
     return (
-    <div className="overlay">
-      <div className="result-card">
-        <div className={`result-mark${title === '和' ? ' draw' : ''}`}>{title}</div>
-        {winnerLine ? <p className="reason">{winnerLine}</p> : null}
+    <div className="result-wrap">
+      <div className="overlay">
+        <div className="result-card">
+          <div className={`result-mark ${title === '胜' ? 'win' : title === '和' ? 'draw' : ''}`}>
+            {title}
+          </div>
+          {winnerLine ? <p className="reason">{winnerLine}</p> : null}
+        </div>
+        {/* 操作按钮位于结果弹窗外部、弹窗下方（产品规格） */}
         <div className="result-actions">
           {online !== null ? (
             <button type="button" onClick={game.rematchReadyAction ?? undefined}>
@@ -95,10 +100,11 @@ export function GameResultOverlay({
           ) : null}
           {onExit ? (
             <button type="button" className="secondary" onClick={onExit}>
-              返回
+              退出房间
             </button>
           ) : null}
         </div>
+        {/* Ready 状态位于按钮区域下面 */}
         {online !== null ? (
           <p className="rematch-ready">
             {state.players

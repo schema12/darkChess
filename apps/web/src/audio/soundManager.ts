@@ -77,8 +77,9 @@ export function createSoundManager(): SoundManager {
           tone(311.13, 0.24, 'sine', 0.11, 0.16);
           break;
         case 'tick':
-          // 最后 10 秒逐秒提示音（短促、低音量）。
-          tone(880, 0.05, 'sine', 0.07);
+          // 最后 10 秒逐秒提示音：合成双音短促“落子木声”（清脆、无外部音频资源）。
+          tone(1244, 0.025, 'square', 0.055);
+          tone(622, 0.045, 'triangle', 0.06, 0.03);
           break;
       }
     },

@@ -601,3 +601,39 @@ rematch 单人准备不开局 / terminal 动作拒绝 / 全员准备→新 GameS
 core 86/86 · server **70/70** · web typecheck/build ✅ · 零进程残留。
 Browser-level / Physical LAN：PENDING MANUAL（重点：认输确认、求和弹窗不阻塞计时、
 最后 10 秒逐秒滴声、断线卡“断线”+计时继续、rematch 全员准备开新局）。
+
+---
+
+# v1.0.3.1：LAN 实测修复（结算布局 / 点击链路可见化 / 胜红色 / tick 音效）
+
+## UI（P0 视觉回归修复）
+
+- **结算布局重构**：结果大字（胜/负/和）+ 胜者身份保留在 result-card 内；
+  **[再来一局][退出房间] 移到弹窗外部、弹窗下方**；Ready 状态再往下。
+  “返回”文案改为“退出房间”。新增 `.result-wrap`（结果 → 按钮 → Ready 三层视觉层级）。
+- **“胜”字红色**（`.result-mark.win`），负/和保持原设计。
+
+## 点击链路（Bug2/Bug3 排查结论）
+
+逐层审计结论：React→controller→session→server→broadcast→React 的静态链路完整
+（server 测试即用同一 session 方法走真实 WebSocket）。真实浏览器“点击无反应”最可能的
+剩余断点在**发送层静默失败**（socket 未 OPEN 时 send 抛错/吞掉）或下一次复现才能定位的环节。
+本轮修复/加固：
+- session 所有动作方法改为**发送可见化**（sendOrReport：socket 未就绪返回 false 并触发
+  `onSendFail`），hook 层把失败转为 Toast“连接未就绪，请稍后重试”——静默无反应不复存在。
+- DEV 诊断贯穿全链：web 端点击/发送/收到 rtt（`[diag] rematch click|drawOffer click|
+  state turn=N rtt=Xms`）；server 端 DARKCHESS_DEBUG=1 输出 recv/apply/forfeit/
+  rematchReady/drawOffer 的接收与**丢弃原因**。
+- 防御性修复：令牌重连后连接的 room 绑定改为**令牌实际命中的房间**（消除处理器与座位
+  所在房间不一致的理论断点）。
+
+## tick 音效
+
+更换为**合成双音短促“落子木声”**（1244Hz square + 622Hz triangle，共 ~70ms）——
+纯合成、无外部音频资源、无版权问题；防重复逻辑不变（每秒值一次）。
+
+## 结果
+
+core 86/86 · server **72/72**（+2 入口链路回归）· web typecheck/build ✅ · 零进程残留。
+LAN 人工验收：**PENDING**（按任务清单 1-12 项执行；如再遇延迟/无反应，
+DEV 控制台 `[diag]` 与服务器 `DARKCHESS_DEBUG=1` 输出可直接定位环节）。

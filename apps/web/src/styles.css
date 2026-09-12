@@ -956,3 +956,38 @@ body {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* —— v1.0.3.1：结果弹窗 + 外部按钮区（结果 → 按钮 → Ready） —— */
+
+.result-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(20, 14, 8, 0.72);
+}
+
+.result-wrap .overlay {
+  position: static;
+  background: transparent;
+  box-shadow: none;
+}
+
+.result-mark.win {
+  color: #d32f2f;
+}
+
+.result-wrap .result-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.result-wrap .rematch-ready {
+  font-size: 13px;
+  color: #cbb88f;
+}

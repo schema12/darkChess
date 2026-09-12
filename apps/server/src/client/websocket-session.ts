@@ -24,11 +24,16 @@ export interface WsLike {
   onmessage: ((event: { data: unknown }) => void) | null;
   onclose: ((event: unknown) => void) | null;
   onerror: ((event: unknown) => void) | null;
+  /** 浏览器/undici WebSocket 均有 readyState；测试桩可缺省（视为已连接）。 */
+  readyState?: number;
+  readonly OPEN?: number;
 }
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed';
 
 export interface WebSocketSessionEvents {
+  /** 指令未能发出（socket 未就绪）——用于把“点击无反应”变成可见信号。 */
+  onSendFail?(label: string): void;
   /** 连接状态变化（connecting -> open -> closed）。 */
   onConnectionChange?(status: ConnectionStatus): void;
   /**
@@ -92,13 +97,13 @@ export interface WebSocketGameSession {
    */
   submit(command: CommandEnvelope): void;
   /** 认输（服务器权威判负；原因 resign）。 */
-  resign(): void;
+  resign(): boolean;
   /** 发起求和（每名玩家每局最多 3 次，被拒同样消耗）。 */
-  drawOffer(): void;
+  drawOffer(): boolean;
   /** 回应他人的求和提议。 */
-  drawResponse(accept: boolean): void;
+  drawResponse(accept: boolean): boolean;
   /** 再来一局（terminal 后标记已准备；全员准备 → 服务器开新局）。 */
-  rematchReady(): void;
+  rematchReady(): boolean;
   close(): void;
   /** 服务端分配的座位身份（重连后保持不变）。 */
   readonly playerId: PlayerId;
@@ -130,6 +135,17 @@ function buildUrl(
   return query.length > 0 ? `${base}/?${query}` : `${base}/`;
 }
 
+/** 发送可见化：socket 未就绪时返回 false 并可诊断，而不是静默吞掉指令。 */
+function sendOrReport(ws: WsLike, payload: string, label: string, onFail?: (label: string) => void): boolean {
+  const open = ws.readyState === undefined || ws.readyState === (ws.OPEN ?? 1);
+  if (!open) {
+    onFail?.(label);
+    return false;
+  }
+  ws.send(payload);
+  return true;
+}
+
 function defaultWebSocketFactory(url: string): WsLike {
   const ctor = (globalThis as unknown as { WebSocket?: new (url: string) => unknown }).WebSocket;
   if (typeof ctor !== 'function') {
@@ -157,6 +173,7 @@ export function connectWebSocketGameSession(
     onState,
     onDrawOffer,
     onDrawResponse,
+    onSendFail,
     onRejected,
     onEliminated,
     onRoomStatus,
@@ -227,23 +244,33 @@ export function connectWebSocketGameSession(
           // 身份安全：playerId 以连接绑定的座位为准，客户端声明不生效；
           // 服务器校验 notCurrentPlayer / eliminated / legality 并广播结果。
           if (closed) return;
-          ws.send(JSON.stringify({ type: 'command', action: command.action } satisfies ClientMessage));
+          sendOrReport(
+            ws,
+            JSON.stringify({ type: 'command', action: command.action } satisfies ClientMessage),
+            'command',
+            onSendFail,
+          );
         },
         resign() {
-          if (closed) return;
-          ws.send(JSON.stringify({ type: 'resign' } satisfies ClientMessage));
+          if (closed) return false;
+          return sendOrReport(ws, JSON.stringify({ type: 'resign' } satisfies ClientMessage), 'resign', onSendFail);
         },
         drawOffer() {
-          if (closed) return;
-          ws.send(JSON.stringify({ type: 'drawOffer' } satisfies ClientMessage));
+          if (closed) return false;
+          return sendOrReport(ws, JSON.stringify({ type: 'drawOffer' } satisfies ClientMessage), 'drawOffer', onSendFail);
         },
         drawResponse(accept: boolean) {
-          if (closed) return;
-          ws.send(JSON.stringify({ type: 'drawResponse', accept } satisfies ClientMessage));
+          if (closed) return false;
+          return sendOrReport(
+            ws,
+            JSON.stringify({ type: 'drawResponse', accept } satisfies ClientMessage),
+            'drawResponse',
+            onSendFail,
+          );
         },
         rematchReady() {
-          if (closed) return;
-          ws.send(JSON.stringify({ type: 'rematchReady' } satisfies ClientMessage));
+          if (closed) return false;
+          return sendOrReport(ws, JSON.stringify({ type: 'rematchReady' } satisfies ClientMessage), 'rematchReady', onSendFail);
         },
         close() {
           closed = true;

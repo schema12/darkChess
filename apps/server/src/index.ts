@@ -194,6 +194,7 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
         const result = candidate.rejoin(token, handle);
         if (result.ok && result.playerId !== undefined) {
           playerId = result.playerId;
+          room = candidate; // 消息路由必须绑定令牌实际命中的房间
           break;
         }
       }
