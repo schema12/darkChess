@@ -262,6 +262,11 @@ export interface OnlineConnection {
   mode: '2p' | '3p';
   /** 计时秒数（仅对新建房间生效）；缺省 = 不限时。 */
   timerSec?: number;
+  /**
+   * 加入尝试序号：每次点击“加入房间”递增——即使 url/roomId 与上次完全相同，
+   * 也会触发一次全新的连接尝试（否则重复点击会因 effect 依赖未变而无反应）。
+   */
+  seq?: number;
   /** 初始重连令牌（缺省尝试 localStorage 中保存的令牌）。 */
   token?: string;
 }
@@ -305,7 +310,7 @@ export function peekStoredToken(url: string, mode: string, roomId: string): bool
 }
 
 /** 无连接时的稳定空连接（保持 hook 引用稳定，避免 effect 反复触发）。 */
-export const NULL_CONNECTION: OnlineConnection = { url: '', roomId: '', mode: '3p' };
+export const NULL_CONNECTION: OnlineConnection = { url: '', roomId: '', mode: '3p', seq: 0 };
 
 export function useOnlineGame(
   modeId: 'dark-chess-4x8' | 'dark-chess-3p-4x8',
@@ -593,7 +598,7 @@ export function useOnlineGame(
       session?.close();
       sessionRef.current = null;
     };
-  }, [connection.url, connection.roomId, connection.mode, attempt]);
+  }, [connection.url, connection.roomId, connection.mode, connection.seq, attempt]);
 
   // 座位门控：联机时本浏览器只操作自己的座位（多设备各管一座，行为与服务器
   // 权威校验一致）；本地热座无门控。未绑定身份（等待期）同样不亮子。

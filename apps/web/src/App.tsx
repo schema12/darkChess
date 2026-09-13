@@ -19,7 +19,8 @@ import { soundManager } from './audio/soundManager';
 type Screen =
   | { readonly kind: 'home' }
   | { readonly kind: 'online' }
-  | { readonly kind: 'room'; readonly mode: '2p' | '3p'; readonly scanEntry?: boolean }
+  | { readonly kind: 'room'; readonly mode: '2p' | '3p' }
+  | { readonly kind: 'scan-help' }
   | { readonly kind: 'settings' }
   // 沉浸式对局页：无底部导航，Header 返回。
   | { readonly kind: 'local-game'; readonly players: '2p' | '3p' }
@@ -64,6 +65,8 @@ export function App() {
 
   // 扫码/分享链接：挂载后自动加入一次（URL 由当前主机名推导），随后清理地址栏。
   const autoJoinFired = useRef(false);
+  // 加入尝试序号：每次点击“加入房间”递增——即使 url/roomId 相同也重新尝试连接。
+  const joinSeqRef = useRef(0);
   useEffect(() => {
     if (!initialJoin || autoJoinFired.current) return;
     autoJoinFired.current = true;
@@ -103,7 +106,7 @@ export function App() {
           game={online}
           onEnter2p={() => setScreen({ kind: 'room', mode: '2p' })}
           onEnter3p={() => setScreen({ kind: 'room', mode: '3p' })}
-          onEnterScan={() => setScreen({ kind: 'room', mode: '3p', scanEntry: true })}
+          onEnterScan={() => setScreen({ kind: 'scan-help' })}
           onReturnToRoom={
             online.online && online.online.playerId !== '' && online.online.status !== 'closed'
               ? () =>
@@ -120,22 +123,40 @@ export function App() {
           game={online}
           settings={settings}
           mode={screen.mode}
-          allowModeSelect={screen.scanEntry === true}
-          scanGuidance={screen.scanEntry === true}
-          autoJoin={!!initialJoin}
           defaultRoomId={initialJoin?.roomId}
-          onJoin={(conn) =>
+          onJoin={(conn) => {
+            joinSeqRef.current += 1;
             setOnlineConn({
               ...conn,
-              mode: conn.mode ?? screen.mode,
+              mode: screen.mode,
+              seq: joinSeqRef.current,
               timerSec: conn.timerSec,
               url: normalizeServerUrl(conn.url),
-            })
-          }
+            });
+          }}
           onExit={exitOnline}
         />
       ) : screen.kind === 'settings' ? (
         <SettingsPage settings={settings} onChange={updateSettings} />
+      ) : screen.kind === 'scan-help' ? (
+        <div className="page">
+          <h2 className="page-title">扫码加入房间</h2>
+          <div className="lobby-card">
+            <p className="lobby-hint">
+              请使用微信或浏览器扫码，
+              扫描房主屏幕上的二维码即可加入房间。
+            </p>
+            <p className="lobby-hint">
+              二维码由房主在房间等待页生成，包含服务器地址与房间号，
+              不包含任何玩家身份信息。
+            </p>
+            <div className="lobby-actions">
+              <button type="button" className="secondary" onClick={() => setScreen({ kind: 'online' })}>
+                返回
+              </button>
+            </div>
+          </div>
+        </div>
       ) : screen.kind === 'local-game' ? (
         <LocalGameScreen players={screen.players} onExit={() => setScreen({ kind: 'home' })} />
       ) : (
