@@ -35,7 +35,8 @@ export function RoomPage({
   // 表单仅在空闲态显示；'connecting'/'open'/'waiting'/'playing' 均视为已发起连接。
   const connecting =
     online !== null && online.status !== 'closed' && online.status !== 'idle';
-  const [url, setUrl] = useState(settings.defaultServer);
+  // 存储为空（未设置/已恢复默认）时回落动态默认（当前访问地址）。
+  const [url, setUrl] = useState(settings.defaultServer || defaultServerUrl());
   const [roomId, setRoomId] = useState(defaultRoomId);
   // 计时策略（好友房可选）：undefined = 不限时；创建房间的一方决定，后加入者沿用房间策略。
   const [timerSec, setTimerSec] = useState<number | undefined>(undefined);

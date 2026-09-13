@@ -69,7 +69,11 @@ export function SettingsPage({
         <div className="settings-row column">
           <span>默认服务器地址</span>
           <div className="inline-edit">
-            <input value={server} onChange={(e) => setServer(e.target.value)} placeholder="ws://192.168.x.x:8787" />
+            <input
+              value={server}
+              onChange={(e) => setServer(e.target.value)}
+              placeholder="留空 = 自动（当前访问地址）"
+            />
             <button
               type="button"
               className="secondary-btn"
@@ -77,8 +81,18 @@ export function SettingsPage({
             >
               保存
             </button>
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={() => {
+                setServer('');
+                onChange({ ...settings, defaultServer: '' });
+              }}
+            >
+              恢复默认
+            </button>
           </div>
-          <span className="page-hint">留空恢复默认（自动使用当前页面的主机名）。</span>
+          <span className="page-hint">留空保存或点“恢复默认” = 自动跟随当前访问地址（推荐，换网络无需修改）。</span>
         </div>
       </section>
 

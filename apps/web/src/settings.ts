@@ -33,10 +33,13 @@ export function loadSettings(): AppSettings {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return { ...FALLBACK };
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    // defaultServer：空/空白 = 未设置 → 回落动态默认（当前访问地址）。
+    // 持久化具体 IP 会在换网络后失效，因此只有非空值才被采纳。
+    const storedServer = typeof parsed.defaultServer === 'string' ? parsed.defaultServer.trim() : '';
     return {
       soundOn: parsed.soundOn ?? FALLBACK.soundOn,
       volume: typeof parsed.volume === 'number' ? Math.min(1, Math.max(0, parsed.volume)) : FALLBACK.volume,
-      defaultServer: parsed.defaultServer ?? FALLBACK.defaultServer,
+      defaultServer: storedServer || FALLBACK.defaultServer,
     };
   } catch {
     return { ...FALLBACK };

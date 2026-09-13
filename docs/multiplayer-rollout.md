@@ -827,3 +827,33 @@ core 86/86 · server **75/75** · web typecheck/build ✅ · 零进程残留。
 - **结论**：现有 server + WebSocket 架构**具备 IPv6 直连的技术可行性**（双栈监听 +
   浏览器原生支持已在本机回环验证）；异地可用性取决于路由器/防火墙入站配置。
   公网中继：**不在本阶段讨论**，待真实环境验证结果出来后单独决策。
+
+---
+
+# v1.1.1：默认服务器地址跨网络自适应（两处小修）
+
+## 问题
+
+换 WiFi 后（PC IP 从 192.168.1.157 变为 192.168.x.x），房间页"服务器"栏仍显示旧地址。
+根因：设置页"保存"把具体 IP 持久化到 `localStorage['darkchess:settings'].defaultServer`，
+跨网络后该值失效但不会自动回落；且 `loadSettings` 对空串不回落动态默认。
+
+## 修复（仅 web settings 链路，3 文件）
+
+1. `loadSettings`：`defaultServer` 空/空白 = 未设置 → 回落 `defaultServerUrl()`
+   （当前访问地址动态推导）；非空值仍采纳。
+2. 设置页新增**恢复默认**按钮：清空存储值（语义 = 跟随当前访问地址），
+   不再持久化会过期的具体 IP。
+3. RoomPage 表单初始值：`settings.defaultServer || defaultServerUrl()`。
+
+## 语义（最终确定）
+
+- 存储值为空 = **动态跟随当前访问地址**（推荐，换网络无需修改）；
+- 存储非空 = 固定使用该地址（有意固定服务器时使用）；
+- 服务器本身始终绑定全接口（`::`），与该设置无关。
+
+## 结果
+
+core 86/86 · server 76/76 · web typecheck/build ✅ · 零进程残留。
+跨网络切换的实际效果：PENDING MANUAL（F12 → Local Storage → darkchess:settings
+可直接核对 defaultServer 字段；删除该键或点"恢复默认"即回到动态跟随）。
