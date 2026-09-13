@@ -120,7 +120,7 @@ export function App() {
           settings={settings}
           mode={screen.mode}
           autoJoin={!!initialJoin}
-          defaultRoomId={initialJoin!.roomId}
+          defaultRoomId={initialJoin?.roomId}
           onJoin={(conn) =>
             setOnlineConn({
               ...conn,
