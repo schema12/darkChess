@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import os from 'node:os';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createDarkChess3p4x8Mode } from '@darkchess/core';
 import type { GameMode, PlayerId } from '@darkchess/core';
@@ -128,8 +129,25 @@ export function startDarkChessServer(options: DarkChessServerOptions): Promise<R
 
   roomFor(defaultRoomId, null); // 默认房间预先存在（保持单房间使用方式不变）
 
-  const http = createServer((_req, res) => {
-    res.writeHead(200, { 'content-type': 'application/json' });
+  const http = createServer((req, res) => {
+    // CORS：允许局域网内网页（Vite 端口）读取本端点的只读信息（LAN 地址候选等）。
+    res.writeHead(200, {
+      'content-type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    if (req.url?.startsWith('/lan')) {
+      // 局域网 IPv4 候选（供房主在用 localhost 打开页面时构造可扫码的加入 URL）。
+      const addresses = [
+        ...new Set(
+          Object.values(os.networkInterfaces())
+            .flat()
+            .filter((i): i is os.NetworkInterfaceInfo => !!i && i.family === 'IPv4' && !i.internal)
+            .map((i) => i.address),
+        ),
+      ];
+      res.end(JSON.stringify({ addresses }));
+      return;
+    }
     res.end(
       JSON.stringify({
         rooms: [...rooms.values()].map((room) => ({

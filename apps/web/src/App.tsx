@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createDarkChess4x8Mode,
   createDarkChess3p4x8Mode,
@@ -25,10 +25,22 @@ type Screen =
   | { readonly kind: 'local-game'; readonly players: '2p' | '3p' }
   | { readonly kind: 'online-game' };
 
+/** 扫码/分享链接的 URL 参数（?room=X&mode=2p|3p）：读取一次后即从地址栏清除。 */
+function readJoinParams(): { roomId: string; mode: '2p' | '3p' } | null {
+  if (typeof window === 'undefined') return null;
+  const p = new URLSearchParams(window.location.search);
+  const room = p.get('room');
+  const mode = p.get('mode') === '2p' ? '2p' : p.get('mode') === '3p' ? '3p' : null;
+  return room && mode ? { roomId: room, mode } : null;
+}
+
 const INITIAL_SETTINGS = loadSettings();
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>({ kind: 'home' });
+  const initialJoin = useMemo(() => readJoinParams(), []);
+  const [screen, setScreen] = useState<Screen>(() =>
+    initialJoin ? { kind: 'room', mode: initialJoin.mode } : { kind: 'home' },
+  );
   const [settings, setSettings] = useState<AppSettings>(INITIAL_SETTINGS);
   // 联机会话提升到 App 层：房间页与对局页共享同一控制器。
   const [onlineConn, setOnlineConn] = useState<OnlineConnection | null>(null);
@@ -49,6 +61,21 @@ export function App() {
       setScreen({ kind: 'online-game' });
     }
   }, [screen.kind, online.state]);
+
+  // 扫码/分享链接：挂载后自动加入一次（URL 由当前主机名推导），随后清理地址栏。
+  const autoJoinFired = useRef(false);
+  useEffect(() => {
+    if (!initialJoin || autoJoinFired.current) return;
+    autoJoinFired.current = true;
+    if (typeof window !== 'undefined' && window.location.search) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    setOnlineConn({
+      url: defaultServerUrl(),
+      roomId: initialJoin.roomId,
+      mode: initialJoin.mode,
+    });
+  }, [initialJoin]);
 
   const exitOnline = () => {
     setOnlineConn(null); // effect 清理关闭会话
@@ -92,6 +119,8 @@ export function App() {
           game={online}
           settings={settings}
           mode={screen.mode}
+          autoJoin={!!initialJoin}
+          defaultRoomId={initialJoin!.roomId}
           onJoin={(conn) =>
             setOnlineConn({
               ...conn,

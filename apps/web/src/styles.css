@@ -1021,3 +1021,30 @@ body {
   text-align: center;
   color: #cbb88f;
 }
+
+/* —— v1.1.0：扫码加入（房主等待页） —— */
+
+.qr-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(138, 109, 59, 0.5);
+  border-radius: 10px;
+  background: rgba(232, 211, 171, 0.06);
+}
+
+.qr-section h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #cbb88f;
+}
+
+.qr-img {
+  width: 180px;
+  height: 180px;
+  background: #f7ecd6;
+  border-radius: 8px;
+  padding: 6px;
+}

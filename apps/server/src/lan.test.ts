@@ -21,6 +21,20 @@ function lanIPv4(): string | null {
   return null;
 }
 
+describe('局域网访问（/lan 地址候选端点）', () => {
+  it('GET /lan 返回 IPv4 候选数组（供扫码 URL 构造）', async () => {
+    const server = await startDarkChessServer({
+      mode: createDarkChess3p4x8Mode(), seatIds: ['A', 'B', 'C'], seed: 1, roomId: 'lan-http',
+    });
+    const res = await fetch(`http://localhost:${server.port}/lan`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { addresses: unknown };
+    expect(Array.isArray(body.addresses)).toBe(true);
+    for (const addr of body.addresses) expect(typeof addr).toBe('string');
+    await server.close();
+  });
+});
+
 describe('局域网访问（WebSocket 绑定与真实建连）', () => {
   let server: Awaited<ReturnType<typeof startDarkChessServer>>;
 
