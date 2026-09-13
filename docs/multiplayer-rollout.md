@@ -788,3 +788,42 @@ currentPlayerId 轮转（A→B）、remaining = 满额——锁定客户端重�
 
 core 86/86 · server **75/75** · web typecheck/build ✅ · 零进程残留。
 渲染效果与 00:00 残留的实际消失：PENDING MANUAL（下轮 LAN 验收确认）。
+
+---
+
+# 阶段 1–3：LAN 扫码加入 / 体验完善 / IPv6 可行性实验（v1.1.0）
+
+## 阶段 1：LAN 扫码快速加入（PASS 自动化 / 扫码真机 PENDING）
+
+- **服务器**：新增 `GET /lan`（只读）返回本机非内部 IPv4 候选；HTTP 信息端点开放 CORS
+  （局域网网页读取用）；WebSocket 与房间逻辑零改动。
+- **Web**：房间页等待态展示**二维码**（内容 = `http://<host>:<web端口>/?room=<id>&mode=<2p|3p>`，
+  不含 playerId/seat/token——身份仍由 join/token 机制管理）；App 挂载时读取 URL 参数
+  `?room&mode` → 自动进入房间页并**自动加入一次**，随后清理地址栏（刷新不会重复自动加入）。
+- **LAN 地址**：默认取页面 hostname；hostname 为 localhost 时经 `/lan` 端点取候选并可切换
+  （不猜、不写死、不引入发现协议）。
+- 依赖：`qrcode` + `@types/qrcode`（MIT，纯前端生成）。
+- 测试：server 76/76（+1 /lan 端点）；扫码真机流程 **PENDING MANUAL**。
+
+## 阶段 2：体验完善核查（全部已有，无需改动）
+
+- 连接状态五态（idle/connecting/open/waiting/playing/closed）均有 UI 表达
+  （GameHeader 状态点、RoomPage 连接中/错误、GameView 断线卡）。
+- 房主关闭服务器 → 客户端 ws close → “连接已断开”卡片 + 重连按钮；
+  重连不可达 → “无法连接服务器”提示。无无限等待路径。
+- 移动端横屏媒体查询（≤720px/≤560px）已在位；扫码区/房间页在窄屏下正常流式布局。
+- 自动发现（2.1）：**跳过**——二维码已解决加入问题，按规格不为炫技增加发现协议。
+
+## 阶段 3：IPv6 可行性实验（只读 + 本机实测）
+
+- **Windows 本机有 Global IPv6**（240e:... 运营商前缀，实测确认）。
+- **服务器默认监听 `::`（双栈）**：`http.listen(port)` 未指定主机 → IPv4/IPv6 双栈可达（代码事实）。
+- **本机 IPv6 回环实测 PASS**：`ws://[::1]:8787` join 成功、`http://[::1]:8787/lan` 200。
+- **发现一个 v2 待办**：`defaultServerUrl()` 拼接 `ws://<hostname>:8787` 时，IPv6 字面量主机名
+  需要方括号（`ws://[fe80::1]:8787`）——当前实现未加括号，IPv6 主机名场景会产生非法 URL
+  （v2 修复，本轮不改代码）。
+- **未验证（需要真实异地环境）**：路由器 IPv6 入站放行、Windows 防火墙入站规则、
+  朋友侧 IPv6 可达性、移动网络 IPv6、长时间连接稳定性——全部 **PENDING MANUAL**。
+- **结论**：现有 server + WebSocket 架构**具备 IPv6 直连的技术可行性**（双栈监听 +
+  浏览器原生支持已在本机回环验证）；异地可用性取决于路由器/防火墙入站配置。
+  公网中继：**不在本阶段讨论**，待真实环境验证结果出来后单独决策。
