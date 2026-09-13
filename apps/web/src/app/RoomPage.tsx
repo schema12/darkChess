@@ -15,6 +15,8 @@ export function RoomPage({
   game,
   settings,
   mode,
+  allowModeSelect = false,
+  scanGuidance = false,
   autoJoin = false,
   defaultRoomId = 'room-1',
   onJoin,
@@ -23,11 +25,15 @@ export function RoomPage({
   game: GameController;
   settings: AppSettings;
   mode: '2p' | '3p';
+  /** 扫码加入入口：表单内可选双人/三人（须与房主房间一致）。 */
+  allowModeSelect?: boolean;
+  /** 扫码加入入口：顶部显示系统相机扫码指引。 */
+  scanGuidance?: boolean;
   /** 扫码/分享链接进入：挂载即自动加入（一次性）。 */
   autoJoin?: boolean;
   /** 扫码 URL 携带的房间号（作为表单预填与自动加入目标）。 */
   defaultRoomId?: string;
-  onJoin: (connection: { url: string; roomId: string; timerSec?: number }) => void;
+  onJoin: (connection: { url: string; roomId: string; mode: '2p' | '3p'; timerSec?: number }) => void;
   onExit: () => void;
 }) {
   const maxPlayers = mode === '3p' ? 3 : 2;
@@ -38,6 +44,8 @@ export function RoomPage({
   // 存储为空（未设置/已恢复默认）时回落动态默认（当前访问地址）。
   const [url, setUrl] = useState(settings.defaultServer || defaultServerUrl());
   const [roomId, setRoomId] = useState(defaultRoomId);
+  // 扫码加入入口：允许选择模式（须与房主房间一致后再加入）。
+  const [selectedMode, setSelectedMode] = useState<'2p' | '3p'>(mode);
   // 计时策略（好友房可选）：undefined = 不限时；创建房间的一方决定，后加入者沿用房间策略。
   const [timerSec, setTimerSec] = useState<number | undefined>(undefined);
   const hasToken = peekStoredToken(url.trim(), mode, roomId.trim());
@@ -56,8 +64,16 @@ export function RoomPage({
       .then((r) => r.json())
       .then((d: { addresses?: string[] }) => {
         if (d.addresses?.length) {
-          setLanCandidates(d.addresses);
-          setQrHost(d.addresses[0]!);
+          // 候选排序：常规局域网段优先，TUN/基准段(198.18.x)与链路本地(169.254.x)垫底。
+          const rank = (ip: string) =>
+            /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(ip)
+              ? 0
+              : /^198\.18\.|^169\.254\./.test(ip)
+                ? 2
+                : 1;
+          const ranked = [...d.addresses].sort((x, y) => rank(x) - rank(y));
+          setLanCandidates(ranked);
+          setQrHost(ranked[0]!);
         }
       })
       .catch(() => undefined);
@@ -82,8 +98,8 @@ export function RoomPage({
   useEffect(() => {
     if (!autoJoin || autoJoinFired.current) return;
     autoJoinFired.current = true;
-    onJoin({ url: defaultServerUrl(), roomId: defaultRoomId });
-  }, [autoJoin, defaultRoomId, onJoin]);
+    onJoin({ url: defaultServerUrl(), roomId: defaultRoomId, mode: selectedMode });
+  }, [autoJoin, defaultRoomId, selectedMode, onJoin]);
 
   return (
     <div className="page">
@@ -91,6 +107,18 @@ export function RoomPage({
 
       {!connecting ? (
         <div className="room-form">
+          {scanGuidance ? (
+            <div className="scan-guidance">
+              <p className="page-hint">
+                加入房间：请用手机<b>系统相机</b>扫描房主屏幕上的二维码，
+                会自动打开本页并加入对应房间。
+              </p>
+              <p className="page-hint">
+                局域网 http 页面无法在应用内调用相机扫码，也可以在下方手动填写
+                服务器与房间号加入（模式须与房主一致）。
+              </p>
+            </div>
+          ) : null}
           <label className="field">
             <span>服务器</span>
             <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="ws://192.168.x.x:8787" />
@@ -112,11 +140,23 @@ export function RoomPage({
               <option value="120">120 秒</option>
             </select>
           </label>
+          {allowModeSelect ? (
+            <label className="field">
+              <span>模式（须与房主房间一致）</span>
+              <select
+                value={selectedMode}
+                onChange={(e) => setSelectedMode(e.target.value === '2p' ? '2p' : '3p')}
+              >
+                <option value="3p">三人</option>
+                <option value="2p">双人</option>
+              </select>
+            </label>
+          ) : null}
           <button
             type="button"
             className="primary-btn"
             disabled={url.trim().length === 0 || roomId.trim().length === 0}
-            onClick={() => onJoin({ url: url.trim(), roomId: roomId.trim(), timerSec })}
+            onClick={() => onJoin({ url: url.trim(), roomId: roomId.trim(), mode: selectedMode, timerSec })}
           >
             加入房间
           </button>
@@ -156,7 +196,21 @@ export function RoomPage({
             <div className="qr-section">
               <h3>扫码加入</h3>
               <img className="qr-img" src={qrDataUrl} alt="扫码加入房间" />
-              <p className="page-hint">房间号：{roomId}</p>
+              {lanCandidates.length > 1 ? (
+                <div className="qr-candidates">
+                  {lanCandidates.map((ip) => (
+                    <button
+                      key={ip}
+                      type="button"
+                      className={ip === qrHost ? 'qr-cand on' : 'qr-cand'}
+                      onClick={() => setQrHost(ip)}
+                    >
+                      {ip}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              <p className="page-hint">房间号：{roomId} · 手机须与电脑同一网络</p>
             </div>
           ) : null}
           <p className="page-hint">

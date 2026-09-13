@@ -7,11 +7,14 @@ export function OnlinePage({
   game,
   onEnter2p,
   onEnter3p,
+  onEnterScan,
   onReturnToRoom,
 }: {
   game: GameController;
   onEnter2p: () => void;
   onEnter3p: () => void;
+  /** 扫码加入：进入加入页（含系统相机扫码指引与手动加入表单）。 */
+  onEnterScan: () => void;
   /** 已有活动会话时显示“返回当前房间”。 */
   onReturnToRoom: (() => void) | null;
 }) {
@@ -29,9 +32,13 @@ export function OnlinePage({
           <span className="entry-title">联机·三人</span>
           <span className="entry-desc">三阵营房间 · 立即进入</span>
         </button>
+        <button type="button" className="entry-card wide" onClick={onEnterScan}>
+          <span className="entry-title">扫码加入房间</span>
+          <span className="entry-desc">已有房间二维码？扫码直接加入</span>
+        </button>
       </div>
       <p className="page-hint">
-        三名玩家使用相同的服务器地址与房间 ID 加入，第三人进入后自动开局。
+        双人/三人：使用相同的服务器地址与房间 ID 加入，人满自动开局。
       </p>
 
       {active && onReturnToRoom ? (

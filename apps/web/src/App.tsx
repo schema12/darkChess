@@ -19,7 +19,7 @@ import { soundManager } from './audio/soundManager';
 type Screen =
   | { readonly kind: 'home' }
   | { readonly kind: 'online' }
-  | { readonly kind: 'room'; readonly mode: '2p' | '3p' }
+  | { readonly kind: 'room'; readonly mode: '2p' | '3p'; readonly scanEntry?: boolean }
   | { readonly kind: 'settings' }
   // 沉浸式对局页：无底部导航，Header 返回。
   | { readonly kind: 'local-game'; readonly players: '2p' | '3p' }
@@ -103,6 +103,7 @@ export function App() {
           game={online}
           onEnter2p={() => setScreen({ kind: 'room', mode: '2p' })}
           onEnter3p={() => setScreen({ kind: 'room', mode: '3p' })}
+          onEnterScan={() => setScreen({ kind: 'room', mode: '3p', scanEntry: true })}
           onReturnToRoom={
             online.online && online.online.playerId !== '' && online.online.status !== 'closed'
               ? () =>
@@ -119,12 +120,14 @@ export function App() {
           game={online}
           settings={settings}
           mode={screen.mode}
+          allowModeSelect={screen.scanEntry === true}
+          scanGuidance={screen.scanEntry === true}
           autoJoin={!!initialJoin}
           defaultRoomId={initialJoin?.roomId}
           onJoin={(conn) =>
             setOnlineConn({
               ...conn,
-              mode: screen.mode,
+              mode: conn.mode ?? screen.mode,
               timerSec: conn.timerSec,
               url: normalizeServerUrl(conn.url),
             })
