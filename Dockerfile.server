@@ -1,0 +1,17 @@
+FROM node:20-alpine
+WORKDIR /app
+RUN npm install -g pnpm
+# 复制工作区配置
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json ./apps/web/
+COPY apps/server/package.json ./apps/server/
+COPY packages/core/package.json ./packages/core/
+RUN pnpm install
+# 复制源码并构建后端
+COPY . .
+RUN pnpm build
+
+# 暴露后端 WebSocket 端口，并启动
+EXPOSE 8787
+# 注意：如果启动命令是 node dist/index.js，请在 apps/server 目录下执行，或者用 pnpm filter
+CMD ["pnpm", "--filter", "@darkchess/server", "start"]
